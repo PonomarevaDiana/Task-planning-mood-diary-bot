@@ -138,6 +138,7 @@ def get_moods_keyboard():
                 KeyboardButton(text="😊 Записать настроение"),
                 KeyboardButton(text="📊 Сегодняшнее настроение"),
             ],
+            [KeyboardButton(text="📅 Календарь настроений")],
             [
                 KeyboardButton(text="📝 Добавить заметку"),
                 KeyboardButton(text="🗑️ Удалить заметку"),
