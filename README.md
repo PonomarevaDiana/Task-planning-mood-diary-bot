@@ -52,3 +52,8 @@
 | **asyncio** | Асинхронность | встроено |
 
 </div>
+
+## 📱 Ссылки
+
+[![Бот в Telegram](https://img.shields.io/badge/🤖_Бот-@task_planning_mood_diary_bot-0088cc?style=for-the-badge&logo=telegram)](https://t.me/task_planning_mood_diary_bot)
+
