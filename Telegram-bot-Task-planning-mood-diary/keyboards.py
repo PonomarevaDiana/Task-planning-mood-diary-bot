@@ -477,7 +477,6 @@ def get_grouping_keyboard():
                 KeyboardButton(text="📊 По статусу"),
             ],
             [
-                KeyboardButton(text="🔄 Комбинированная"),
                 KeyboardButton(text="📋 Все задачи"),
             ],
             [KeyboardButton(text="🔙 Назад к задачам")],
@@ -540,27 +539,6 @@ def get_grouping_status_keyboard():
                 KeyboardButton(text="📊 Все статусы"),
             ],
             [
-                KeyboardButton(text="🔙 Назад к задачам"),
-            ],
-        ],
-        resize_keyboard=True,
-    )
-
-
-def get_grouping_combined_keyboard():
-    """Клавиатура для комбинированной группировки"""
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [
-                KeyboardButton(text="🎯 Приоритет + Дата"),
-                KeyboardButton(text="🏷️ Тег + Приоритет"),
-            ],
-            [
-                KeyboardButton(text="📅 Дата + Статус"),
-                KeyboardButton(text="🏷️ Тег + Статус"),
-            ],
-            [
-                KeyboardButton(text="🔄 Тройная группировка"),
                 KeyboardButton(text="🔙 Назад к задачам"),
             ],
         ],
