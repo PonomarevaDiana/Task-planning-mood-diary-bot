@@ -540,13 +540,11 @@ async def show_tags_analytics_universal(
 ):
     """Универсальный анализ по тегам"""
     try:
-        print(f"🔍 Начинаем анализ тегов для пользователя {user_id}")
 
         if start_date and end_date:
             all_tasks = await db.get_user_tasks(user_id, include_deleted=False)
             filtered_tasks = filter_tasks_by_date(all_tasks, start_date, end_date)
             actual_days = days
-            print(f"📅 Произвольный период: {len(filtered_tasks)} задач")
         else:
             tag_stats = await db.get_tasks_grouped_by_tags(user_id)
             all_tasks = await db.get_user_tasks(user_id, include_deleted=False)
@@ -554,12 +552,10 @@ async def show_tags_analytics_universal(
             start_date = end_date - timedelta(days=days)
             filtered_tasks = filter_tasks_by_date(all_tasks, start_date, end_date)
             actual_days = days
-            print(f"📅 Стандартный период: {len(filtered_tasks)} задач")
 
         tag_analysis = await analyze_tags_for_period_db(
             user_id, filtered_tasks, actual_days
         )
-        print(f"🏷️ Результат анализа: {tag_analysis['unique_tags']} уникальных тегов")
 
         text = format_tags_analytics_universal(
             tag_analysis, actual_days, start_date, end_date
@@ -592,10 +588,7 @@ async def analyze_tags_for_period_db(user_id: int, tasks: list, days: int) -> di
             "avg_tags_per_task": 0,
         }
 
-    print(f"🔍 Анализируем {len(tasks)} задач на теги...")
-
     all_tags = await db.get_user_tags(user_id)
-    print(f"🏷️ Всего тегов у пользователя: {len(all_tags)}")
 
     tags_stats = {}
     tasks_with_tags = 0
@@ -627,9 +620,6 @@ async def analyze_tags_for_period_db(user_id: int, tasks: list, days: int) -> di
                     tags_stats[tag_name]["completed"] += 1
                 else:
                     tags_stats[tag_name]["pending"] += 1
-
-    print(f"📊 Найдено задач с тегами: {tasks_with_tags}")
-    print(f"📊 Всего использований тегов: {total_tag_uses}")
 
     most_used_tags = sorted(
         [(tag, stats["total"]) for tag, stats in tags_stats.items()],

@@ -8,7 +8,7 @@ class Database:
         self.db_path = Config.DATABASE_URL.replace("sqlite:///", "")
 
     async def initialize(self):
-        """Инициализация базы данных - создание таблиц и обновление структуры"""
+        """Инициализация базы данных - создание таблиц"""
         await self.create_tables()
 
     async def create_tables(self):
@@ -240,7 +240,7 @@ class Database:
             await db.commit()
 
     async def permanently_delete_task(self, task_id: int):
-        """Физически удаляет задачу (использовать с осторожностью)"""
+        """Физически удаляет задачу"""
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
             await db.commit()
@@ -1070,7 +1070,7 @@ class Database:
             return await cursor.fetchall()
 
     async def get_overdue_tasks(self, user_id: int) -> list:
-        """Получает просроченные задачи - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
+        """Получает просроченные задачи"""
         async with aiosqlite.connect(self.db_path) as db:
             try:
                 now = datetime.now().isoformat()
@@ -1268,17 +1268,11 @@ class Database:
                     (task_id, reminder_type),
                 )
                 deleted_count = result.rowcount
-                print(
-                    f"🗑️ [DB] Удалены напоминания типа '{reminder_type}' для задачи #{task_id}: {deleted_count} шт."
-                )
             else:
                 result = await db.execute(
                     "DELETE FROM task_reminders WHERE task_id = ?", (task_id,)
                 )
                 deleted_count = result.rowcount
-                print(
-                    f"🗑️ [DB] Удалены все напоминания для задачи #{task_id}: {deleted_count} шт."
-                )
             await db.commit()
             return deleted_count
 

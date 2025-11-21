@@ -101,16 +101,8 @@ class ReminderManager:
                     has_reminder,
                 ) = task
 
-                print(
-                    f"📋 Задача {task_id}: due_date={due_date}, "
-                    f"enable_overdue={enable_overdue}, has_reminder={has_reminder}"
-                )
-
             for task in found_tasks:
                 task_id, user_id, due_date = task
-                print(
-                    f"✅ Найдена для уведомления: задача {task_id}, due_date={due_date}"
-                )
 
         except Exception as e:
             print(f"❌ [OVERDUE DEBUG] Ошибка диагностики: {e}")
@@ -132,7 +124,6 @@ class ReminderManager:
 
                     if reminder_id:
                         created_count += 1
-                        print(f"✅ [OVERDUE] Создано напоминание для задачи {task_id}")
                     else:
                         print(
                             f"❌ [OVERDUE] Не удалось создать напоминание для задачи {task_id}"
@@ -145,8 +136,6 @@ class ReminderManager:
                     import traceback
 
                     traceback.print_exc()
-
-            print(f"📊 [OVERDUE] Итого создано напоминаний: {created_count}")
 
         except Exception as e:
             print(f"❌ [OVERDUE] Ошибка в _create_overdue_reminders: {e}")

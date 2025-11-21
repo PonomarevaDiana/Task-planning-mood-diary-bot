@@ -162,10 +162,6 @@ def extract_task_data(task):
         if len(task) > 9:
             is_deleted = bool(task[9])
 
-        print(
-            f"DEBUG extract_task_data: id:{task_id}, priority:'{priority}', status:'{status}', is_deleted:{is_deleted}"
-        )
-
         return task_id, content, due_date, priority, status, is_deleted
 
     except (IndexError, TypeError, AttributeError) as e:
@@ -281,7 +277,7 @@ async def format_and_send_tasks(
 
 
 def describe_filters(filters: dict) -> str:
-    """Описание примененных фильтров на русском"""
+    """Описание примененных фильтров"""
     if not filters:
         return "все задачи"
 
@@ -685,7 +681,7 @@ async def cmd_upcoming(message: Message):
 
 
 async def show_upcoming_tasks(message: Message):
-    """Показать ближайшие задачи - УПРОЩЕННАЯ ВЕРСИЯ"""
+    """Показать ближайшие задачи"""
     try:
         user_id = message.from_user.id
 
@@ -714,7 +710,7 @@ async def cmd_overdue(message: Message):
 
 
 async def show_overdue_tasks(message: Message):
-    """Показать просроченные задачи - УПРОЩЕННАЯ ВЕРСИЯ"""
+    """Показать просроченные задачи"""
     try:
         user_id = message.from_user.id
         overdue_tasks = await db.get_overdue_tasks(user_id)
@@ -741,7 +737,7 @@ async def handle_today_tasks(message: Message):
 
 
 async def show_today_tasks(message: Message):
-    """Показать задачи на сегодня - УПРОЩЕННАЯ ВЕРСИЯ"""
+    """Показать задачи на сегодня"""
     try:
         user_id = message.from_user.id
         tasks = await db.get_today_tasks(user_id)
@@ -1394,7 +1390,6 @@ async def process_new_date(message: Message, state: FSMContext):
 
 @router.message(StateFilter(TaskEdit.waiting_for_new_time))
 async def process_new_time(message: Message, state: FSMContext):
-    print(f"DEBUG: Дошел до process_new_time, текст: {message.text}")
     """Обработка нового времени"""
     if await handle_navigation(message, state):
         return
@@ -1427,10 +1422,8 @@ async def process_new_time(message: Message, state: FSMContext):
 
     await db.update_task_due_date(task_id, due_datetime)
 
-    print(f"DEBUG: reminder_manager внутри функции = {reminder_manager}")
     if reminder_manager:
         try:
-            print(f"🔄 Обновляем напоминания для задачи #{task_id}")
             await reminder_manager.update_reminders_for_edited_task(
                 user_id=message.from_user.id, task_id=task_id, new_due_date=due_datetime
             )
@@ -1841,7 +1834,7 @@ async def count_filtered_tasks(user_id: int, filters: dict) -> int:
 
 
 def describe_filters(filters: dict) -> str:
-    """Описание примененных фильтров на русском"""
+    """Описание примененных фильтров"""
     if not filters:
         return "все задачи"
 
@@ -2872,7 +2865,7 @@ async def cmd_reminder_settings(message: Message):
 
 @router.message(Command("overdue"))
 async def cmd_overdue(message: Message):
-    """Показывает просроченные задачи - УПРОЩЕННАЯ ВЕРСИЯ"""
+    """Показывает просроченные задачи"""
     try:
         user_id = message.from_user.id
         overdue_tasks = await db.get_overdue_tasks(user_id)
