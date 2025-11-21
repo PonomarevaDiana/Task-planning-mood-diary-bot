@@ -13,7 +13,6 @@ class Database:
 
     async def create_tables(self):
         async with aiosqlite.connect(self.db_path) as db:
-            # Таблица пользователей
             await db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS users (
@@ -25,7 +24,6 @@ class Database:
             """
             )
 
-            # Таблица задач
             await db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS tasks (
@@ -47,7 +45,6 @@ class Database:
             """
             )
 
-            # Таблица настроений
             await db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS moods (
@@ -103,7 +100,6 @@ class Database:
                 )
             """
             )
-            # Таблица настроек напоминаний
             await db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS reminder_settings (
@@ -446,7 +442,6 @@ class Database:
             print(f"   - notes type: {type(notes)}")
 
             async with aiosqlite.connect(self.db_path) as db:
-                # Проверим, есть ли запись настроения на сегодня
                 cursor = await db.execute(
                     'SELECT id, mood, notes FROM moods WHERE user_id = ? AND date = date("now")',
                     (user_id,),
@@ -459,14 +454,12 @@ class Database:
                     print("❌ [UPDATE_MOOD_NOTES] Нет записи настроения на сегодня")
                     return False
 
-                # Обновляем заметку
                 result = await db.execute(
                     'UPDATE moods SET notes = ? WHERE user_id = ? AND date = date("now")',
                     (notes, user_id),
                 )
                 await db.commit()
 
-                # Проверим, сколько строк было обновлено
                 changes = result.rowcount
                 print(f"✅ [UPDATE_MOOD_NOTES] Обновлено строк: {changes}")
 
@@ -507,7 +500,6 @@ class Database:
             )
             return await cursor.fetchall()
 
-    # Работа с тегами
     async def create_tag(self, user_id: int, tag_name: str, color: str = "#007ACC"):
         """Создает тег или возвращает ID существующего"""
         async with aiosqlite.connect(self.db_path) as db:
@@ -607,7 +599,6 @@ class Database:
             )
             return await cursor.fetchall()
 
-    # Методы для удаленных задач
     async def get_deleted_tasks(self, user_id: int):
         """Получает удаленные задачи пользователя"""
         async with aiosqlite.connect(self.db_path) as db:
@@ -617,13 +608,11 @@ class Database:
             )
             return await cursor.fetchall()
 
-    # Методы для очистки
     async def cleanup_old_completed_tasks(self, days_old: int = 30):
         """Удаляет выполненные задачи старше X дней"""
         async with aiosqlite.connect(self.db_path) as db:
             cutoff_date = (datetime.now() - timedelta(days=days_old)).isoformat()
 
-            # Сначала удаляем связи с тегами
             await db.execute(
                 """
                 DELETE FROM task_tags 
@@ -636,7 +625,6 @@ class Database:
                 (cutoff_date,),
             )
 
-            # Затем удаляем сами задачи
             result = await db.execute(
                 """
                 DELETE FROM tasks 
@@ -665,8 +653,6 @@ class Database:
         """Физически удаляет задачи, помеченные как удаленные больше X дней назад"""
         async with aiosqlite.connect(self.db_path) as db:
             cutoff_date = (datetime.now() - timedelta(days=days_old)).isoformat()
-
-            # Сначала удаляем связи с тегами
             await db.execute(
                 """
                 DELETE FROM task_tags 
@@ -690,7 +676,6 @@ class Database:
     async def get_storage_statistics(self, user_id: int):
         """Получает статистику хранилища"""
         async with aiosqlite.connect(self.db_path) as db:
-            # Старые выполненные задачи (>30 дней)
             month_ago = (datetime.now() - timedelta(days=30)).isoformat()
             cursor = await db.execute(
                 "SELECT COUNT(*) FROM tasks WHERE user_id = ? AND status = 'completed' AND completed_at <= ?",
@@ -698,7 +683,6 @@ class Database:
             )
             old_completed = (await cursor.fetchone())[0]
 
-            # Старые настроения (>90 дней)
             three_months_ago = (datetime.now() - timedelta(days=90)).date().isoformat()
             cursor = await db.execute(
                 "SELECT COUNT(*) FROM moods WHERE user_id = ? AND date < ?",
@@ -717,7 +701,6 @@ class Database:
             settings = await cursor.fetchone()
 
             if not settings:
-                # Создаем настройки по умолчанию
                 await db.execute(
                     "INSERT INTO reminder_settings (user_id, enable_reminders, reminder_before_hours, enable_overdue_reminders) VALUES (?, 1, 1, 1)",
                     (user_id,),
@@ -729,15 +712,14 @@ class Database:
                 )
                 settings = await cursor.fetchone()
 
-            # Гарантируем что все поля не None
             if settings:
                 settings_list = list(settings)
                 if settings_list[1] is None:
-                    settings_list[1] = 1  # enable_reminders
+                    settings_list[1] = 1
                 if settings_list[2] is None:
-                    settings_list[2] = 1  # reminder_before_hours
+                    settings_list[2] = 1
                 if settings_list[3] is None:
-                    settings_list[3] = 1  # enable_overdue_reminders
+                    settings_list[3] = 1
                 return tuple(settings_list)
 
             return settings
@@ -767,9 +749,7 @@ class Database:
             print(f"   - scheduled_time: {scheduled_time}")
 
             try:
-                # 🔴 ИСПРАВЛЕНИЕ: Для немедленных напоминаний о просрочке используем текущее время
                 if reminder_type == "overdue_immediate":
-                    # Устанавливаем время на 1 минуту назад, чтобы напоминание отправилось немедленно
                     actual_scheduled_time = datetime.now() - timedelta(minutes=1)
                     print(
                         f"🔄 [CREATE_REMINDER] Исправляем время для немедленного напоминания:"
@@ -804,7 +784,6 @@ class Database:
             print("🔍 [GET_PENDING_REMINDERS] Начинаем поиск напоминаний...")
 
             async with aiosqlite.connect(self.db_path) as db:
-                # ДИАГНОСТИКА: Какое время сейчас в БД?
                 cursor = await db.execute(
                     "SELECT datetime('now'), datetime('now', 'localtime')"
                 )
@@ -813,8 +792,6 @@ class Database:
                 print(
                     f"🕒 Текущее время в БД - UTC: {current_utc}, Local: {current_local}"
                 )
-
-                # 🔴 ИСПРАВЛЕНИЕ: Используем UTC для сравнения вместо локального времени
                 cursor = await db.execute(
                     """
                     SELECT 
@@ -836,7 +813,6 @@ class Database:
                     f"✅ [GET_PENDING_REMINDERS] Найдено напоминаний: {len(found_reminders)}"
                 )
 
-                # Дополнительная диагностика
                 for rem in found_reminders:
                     (
                         reminder_id,
@@ -855,7 +831,6 @@ class Database:
                         f"   - Будет отправлено: ID {reminder_id}, задача {task_id}, время {scheduled_time}"
                     )
 
-                    # Проверим время в UTC
                     cursor_check = await db.execute(
                         "SELECT ? <= datetime('now') as is_due_utc",
                         (scheduled_time,),
@@ -881,7 +856,6 @@ class Database:
             )
             await db.commit()
 
-    # В методе get_tasks_needing_reminders исправляем выборку:
     async def get_tasks_needing_reminders(self):
         """Получает задачи, для которых нужно создать напоминания о дедлайнах"""
         async with aiosqlite.connect(self.db_path) as db:
@@ -946,7 +920,7 @@ class Database:
                 )
                 AND rs.enable_overdue_reminders = 1
                 """,
-                (f"-{24} hours",),  # проверяем за последние 24 часа
+                (f"-{24} hours",),
             )
             return await cursor.fetchall()
 
@@ -966,7 +940,6 @@ class Database:
     async def get_overdue_tasks_stats(self, user_id: int):
         """Получает статистику по просроченным задачам"""
         async with aiosqlite.connect(self.db_path) as db:
-            # Общее количество просроченных задач
             cursor = await db.execute(
                 """
                 SELECT COUNT(*) 
@@ -981,7 +954,6 @@ class Database:
             )
             total_overdue = (await cursor.fetchone())[0]
 
-            # Просроченные задачи по приоритетам
             cursor = await db.execute(
                 """
                 SELECT priority, COUNT(*)
@@ -1002,18 +974,15 @@ class Database:
                 "overdue_by_priority": overdue_by_priority,
             }
 
-    # В database.py добавляем метод для исправления настроек
     async def fix_reminder_settings(self, user_id: int):
         """Исправляет настройки напоминаний, устанавливая значения по умолчанию для None"""
         async with aiosqlite.connect(self.db_path) as db:
-            # Получаем текущие настройки
             cursor = await db.execute(
                 "SELECT * FROM reminder_settings WHERE user_id = ?", (user_id,)
             )
             settings = await cursor.fetchone()
 
             if not settings:
-                # Создаем настройки по умолчанию если их нет
                 await db.execute(
                     "INSERT INTO reminder_settings (user_id, enable_reminders, reminder_before_hours, enable_overdue_reminders) VALUES (?, 1, 1, 1)",
                     (user_id,),
@@ -1022,13 +991,12 @@ class Database:
                 print(f"✅ Созданы настройки по умолчанию для пользователя {user_id}")
                 return
 
-            # Проверяем каждое поле и устанавливаем значения по умолчанию если None
             updates = {}
-            if settings[1] is None:  # enable_reminders
+            if settings[1] is None:
                 updates["enable_reminders"] = 1
-            if settings[2] is None:  # reminder_before_hours
-                updates["reminder_before_hours"] = 1  # Исправлено на 1
-            if settings[3] is None:  # enable_overdue_reminders
+            if settings[2] is None:
+                updates["reminder_before_hours"] = 1
+            if settings[3] is None:
                 updates["enable_overdue_reminders"] = 1
 
             if updates:
@@ -1061,8 +1029,6 @@ class Database:
                 """
             )
             return await cursor.fetchall()
-
-    # В класс Database добавьте:
 
     async def update_last_overdue_notification(self, task_id: int):
         """Обновляет время последнего уведомления о просрочке"""
@@ -1128,19 +1094,15 @@ class Database:
         """Получает расширенную статистику задач за указанный период"""
         async with aiosqlite.connect(self.db_path) as db:
 
-            # Определяем условия даты в зависимости от переданных параметров
             if start_date and end_date:
-                # Используем конкретный диапазон дат
                 date_condition = "AND date(created_at) BETWEEN ? AND ?"
                 date_params = [start_date, end_date]
                 period_info = f"с {start_date} по {end_date}"
             else:
-                # Используем период в днях
                 date_condition = "AND created_at >= date('now', ?)"
                 date_params = [f"-{days} days"]
                 period_info = f"за последние {days} дней"
 
-            # Базовая статистика по статусам
             base_query = f"""
                 SELECT 
                     status, 
@@ -1158,7 +1120,6 @@ class Database:
             cursor = await db.execute(base_query, query_params)
             status_stats = await cursor.fetchall()
 
-            # Статистика по приоритетам
             priority_query = f"""
                 SELECT 
                     priority, 
@@ -1180,7 +1141,6 @@ class Database:
             cursor = await db.execute(priority_query, query_params)
             priority_stats = await cursor.fetchall()
 
-            # Ежедневная статистика выполнения задач
             if start_date and end_date:
                 daily_condition = "AND date(completed_at) BETWEEN ? AND ?"
                 daily_params = [user_id, start_date, end_date]
@@ -1206,7 +1166,6 @@ class Database:
             )
             daily_completion = await cursor.fetchall()
 
-            # Статистика по просроченным задачам
             if start_date and end_date:
                 overdue_condition = "AND date(created_at) BETWEEN ? AND ?"
                 overdue_params = [user_id, start_date, end_date]
@@ -1230,7 +1189,6 @@ class Database:
             )
             overdue_count = (await cursor.fetchone())[0]
 
-            # Среднее время выполнения задач
             cursor = await db.execute(
                 f"""
                 SELECT 
@@ -1261,7 +1219,6 @@ class Database:
         """Получает расширенную статистику настроений за указанный период"""
         async with aiosqlite.connect(self.db_path) as db:
 
-            # Определяем условия даты
             if start_date and end_date:
                 date_condition = "AND date BETWEEN ? AND ?"
                 date_params = [start_date, end_date]
@@ -1269,7 +1226,6 @@ class Database:
                 date_condition = "AND date >= date('now', ?)"
                 date_params = [f"-{days} days"]
 
-            # Распределение настроений
             cursor = await db.execute(
                 f"""
                 SELECT 
@@ -1285,7 +1241,6 @@ class Database:
             )
             mood_distribution = await cursor.fetchall()
 
-            # Последние записи настроений
             cursor = await db.execute(
                 f"""
                 SELECT 
@@ -1300,8 +1255,6 @@ class Database:
                 [user_id] + date_params,
             )
             recent_moods = await cursor.fetchall()
-
-            # Самое популярное настроение
             cursor = await db.execute(
                 f"""
                 SELECT 
@@ -1317,7 +1270,6 @@ class Database:
             )
             most_common_mood = await cursor.fetchone()
 
-            # Статистика по дням недели
             cursor = await db.execute(
                 f"""
                 SELECT 
@@ -1358,6 +1310,197 @@ class Database:
                 "mood_by_weekday": mood_by_weekday,
                 "period_days": days,
             }
+
+    async def get_filtered_tasks(self, user_id: int, filters: dict) -> list:
+        """Получает задачи по фильтрам через SQL"""
+        async with aiosqlite.connect(self.db_path) as db:
+            base_query = """
+                SELECT * FROM tasks 
+                WHERE user_id = ? 
+                AND is_deleted = 0
+            """
+            params = [user_id]
+
+            if filters.get("status") == "completed":
+                base_query += " AND status = 'completed'"
+            elif filters.get("status") == "pending":
+                base_query += " AND status = 'pending'"
+            elif filters.get("status") == "deleted":
+                base_query += " AND is_deleted = 1"
+
+            if filters.get("priority"):
+                base_query += " AND priority = ?"
+                params.append(filters["priority"])
+
+            if filters.get("tag"):
+                base_query += """
+                    AND id IN (
+                        SELECT task_id FROM task_tags 
+                        JOIN tags ON task_tags.tag_id = tags.id 
+                        WHERE tags.user_id = ? AND tags.name = ?
+                    )
+                """
+                params.extend([user_id, filters["tag"].lower()])
+
+            if filters.get("date"):
+                today = datetime.now().date()
+                if filters["date"] == "today":
+                    base_query += " AND date(due_date) = date(?)"
+                    params.append(today.isoformat())
+                elif filters["date"] == "tomorrow":
+                    base_query += " AND date(due_date) = date(?, '+1 day')"
+                    params.append(today.isoformat())
+                elif filters["date"] == "week":
+                    base_query += (
+                        " AND date(due_date) BETWEEN date(?) AND date(?, '+7 days')"
+                    )
+                    params.extend([today.isoformat(), today.isoformat()])
+                elif filters["date"] == "overdue":
+                    base_query += " AND due_date < datetime(?) AND status = 'pending'"
+                    params.append(datetime.now().isoformat())
+
+            base_query += " ORDER BY due_date ASC"
+
+            cursor = await db.execute(base_query, params)
+            return await cursor.fetchall()
+
+    async def get_tasks_grouped_by_priority_detailed(self, user_id: int) -> dict:
+        """Получает задачи сгруппированные по приоритетам с деталями"""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT 
+                    priority,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN due_date < datetime('now') THEN 1 ELSE 0 END) as overdue,
+                    SUM(CASE WHEN due_date IS NULL THEN 1 ELSE 0 END) as no_date
+                FROM tasks 
+                WHERE user_id = ? AND status = 'pending' AND is_deleted = 0
+                GROUP BY priority
+                ORDER BY 
+                    CASE priority
+                        WHEN 'high' THEN 1
+                        WHEN 'medium' THEN 2  
+                        WHEN 'low' THEN 3
+                        ELSE 4
+                    END
+            """,
+                (user_id,),
+            )
+
+            return await cursor.fetchall()
+
+    async def get_urgent_tasks(self, user_id: int) -> list:
+        """Получает срочные задачи (сегодня + просроченные)"""
+        async with aiosqlite.connect(self.db_path) as db:
+            today_start = datetime.now().replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            today_end = datetime.now().replace(
+                hour=23, minute=59, second=59, microsecond=999999
+            )
+
+            cursor = await db.execute(
+                """
+                SELECT * FROM tasks 
+                WHERE user_id = ? 
+                AND status = 'pending'
+                AND is_deleted = 0
+                AND due_date IS NOT NULL
+                AND due_date >= ? 
+                AND due_date <= ?
+                ORDER BY due_date ASC
+                """,
+                (user_id, today_start.isoformat(), today_end.isoformat()),
+            )
+            today_tasks = await cursor.fetchall()
+
+            cursor = await db.execute(
+                """
+                SELECT * FROM tasks 
+                WHERE user_id = ? 
+                AND status = 'pending'
+                AND is_deleted = 0
+                AND due_date IS NOT NULL
+                AND due_date < ?
+                ORDER BY due_date ASC
+                """,
+                (datetime.now().isoformat(),),
+            )
+            overdue_tasks = await cursor.fetchall()
+
+            return today_tasks + overdue_tasks
+
+    async def get_today_tasks(self, user_id: int) -> list:
+        """Получает задачи на сегодня"""
+        async with aiosqlite.connect(self.db_path) as db:
+            today_start = datetime.now().replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            today_end = datetime.now().replace(
+                hour=23, minute=59, second=59, microsecond=999999
+            )
+
+            cursor = await db.execute(
+                """
+                SELECT * FROM tasks 
+                WHERE user_id = ? 
+                AND status = 'pending'
+                AND is_deleted = 0
+                AND due_date IS NOT NULL
+                AND due_date >= ? 
+                AND due_date <= ?
+                ORDER BY due_date ASC
+                """,
+                (user_id, today_start.isoformat(), today_end.isoformat()),
+            )
+            return await cursor.fetchall()
+
+    async def get_overdue_tasks(self, user_id: int) -> list:
+        """Получает просроченные задачи - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
+        async with aiosqlite.connect(self.db_path) as db:
+            try:
+                # Получаем текущее время для сравнения
+                now = datetime.now().isoformat()
+
+                cursor = await db.execute(
+                    """
+                    SELECT * FROM tasks 
+                    WHERE user_id = ? 
+                    AND status = 'pending'
+                    AND is_deleted = 0
+                    AND due_date IS NOT NULL
+                    AND datetime(due_date) < datetime(?)
+                    ORDER BY due_date ASC
+                    """,
+                    (user_id, now),
+                )
+                return await cursor.fetchall()
+
+            except Exception as e:
+                print(f"❌ Ошибка в get_overdue_tasks: {e}")
+                return []
+
+    async def get_upcoming_tasks(self, user_id: int, days: int = 7) -> list:
+        """Получает ближайшие задачи на указанное количество дней"""
+        async with aiosqlite.connect(self.db_path) as db:
+            now = datetime.now()
+            period_end = now + timedelta(days=days)
+
+            cursor = await db.execute(
+                """
+                SELECT * FROM tasks 
+                WHERE user_id = ? 
+                AND status = 'pending'
+                AND is_deleted = 0
+                AND due_date IS NOT NULL
+                AND due_date >= ? 
+                AND due_date <= ?
+                ORDER BY due_date ASC
+                """,
+                (user_id, now.isoformat(), period_end.isoformat()),
+            )
+            return await cursor.fetchall()
 
 
 db = Database()

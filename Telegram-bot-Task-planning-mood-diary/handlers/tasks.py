@@ -174,7 +174,7 @@ def extract_task_data(task):
 
 
 def format_due_date(due_date):
-    """Форматирование даты для отображения с учетом возможных ошибок в данных"""
+    """Форматирование даты для отображения с учетом времени"""
     if not due_date:
         return "⏳ без срока"
 
@@ -203,9 +203,8 @@ def format_due_date(due_date):
         else:
             due_datetime = datetime.fromisoformat(due_date + "T00:00:00")
 
-        today = datetime.now().date()
-        task_date = due_datetime.date()
-        is_overdue = task_date < today
+        now = datetime.now()
+        is_overdue = due_datetime < now
 
         if due_datetime.time() == time(23, 59) or due_datetime.hour == 23:
             if is_overdue:
@@ -380,38 +379,29 @@ async def count_filtered_tasks(user_id: int, filters: dict) -> int:
 
 
 async def get_storage_stats(user_id: int) -> str:
-    """Получить статистику хранилища"""
-    async with aiosqlite.connect(db.db_path) as conn:
-        cursor = await conn.execute(
-            "SELECT status, COUNT(*) FROM tasks WHERE user_id = ? AND is_deleted = 0 GROUP BY status",
-            (user_id,),
-        )
-        task_stats = await cursor.fetchall()
+    """Получить статистику хранилища - УПРОЩЕННАЯ ВЕРСИЯ"""
+    storage_stats = await db.get_storage_statistics(user_id)
 
-        month_ago = (datetime.now() - timedelta(days=30)).isoformat()
-        cursor = await conn.execute(
-            "SELECT COUNT(*) FROM tasks WHERE status = 'completed' AND completed_at <= ? AND user_id = ?",
-            (month_ago, user_id),
-        )
-        old_completed = (await cursor.fetchone())[0]
-
-        three_months_ago = (datetime.now() - timedelta(days=90)).date().isoformat()
-        cursor = await conn.execute(
-            "SELECT COUNT(*) FROM moods WHERE date < ? AND user_id = ?",
-            (three_months_ago, user_id),
-        )
-        old_moods = (await cursor.fetchone())[0]
+    task_stats = await db.get_task_statistics(user_id, days=365)
 
     stats_text = "📊 Текущая статистика:\n\n"
 
-    for status, count in task_stats:
-        icon = "✅" if status == "completed" else "📝"
-        status_name = "выполненные" if status == "completed" else "активные"
-        stats_text += f"{icon} {status_name}: {count}\n"
+    if task_stats:
+        for status, count in task_stats:
+            icon = "✅" if status == "completed" else "📝"
+            status_name = "выполненные" if status == "completed" else "активные"
+            stats_text += f"{icon} {status_name}: {count}\n"
+    else:
+        active_tasks = await db.get_user_tasks(user_id, "pending")
+        completed_tasks = await db.get_user_tasks(user_id, "completed")
+        stats_text += f"📝 активные: {len(active_tasks)}\n"
+        stats_text += f"✅ выполненные: {len(completed_tasks)}\n"
 
     stats_text += f"\n🗑️ Готово к очистке:\n"
-    stats_text += f"• Выполненные задачи (>30 дней): {old_completed}\n"
-    stats_text += f"• Записи настроения (>90 дней): {old_moods}\n"
+    stats_text += (
+        f"• Выполненные задачи (>30 дней): {storage_stats['old_completed_tasks']}\n"
+    )
+    stats_text += f"• Записи настроения (>90 дней): {storage_stats['old_moods']}\n"
 
     return stats_text
 
@@ -666,53 +656,19 @@ async def cmd_urgent(message: Message):
 
 
 async def show_urgent_tasks(message: Message):
-    """Показать срочные задачи"""
+    """Показать срочные задачи - УПРОЩЕННАЯ ВЕРСИЯ"""
     try:
         user_id = message.from_user.id
-        now = datetime.now()
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
 
-        async with aiosqlite.connect(db.db_path) as db_conn:
-            cursor = await db_conn.execute(
-                """
-                SELECT * FROM tasks 
-                WHERE user_id = ? 
-                AND status = 'pending'
-                AND is_deleted = 0
-                AND due_date IS NOT NULL
-                AND due_date >= ? 
-                AND due_date <= ?
-                ORDER BY due_date ASC
-                """,
-                (user_id, today_start.isoformat(), today_end.isoformat()),
-            )
-            today_tasks = await cursor.fetchall()
+        urgent_tasks = await db.get_urgent_tasks(user_id)
 
-        async with aiosqlite.connect(db.db_path) as db_conn:
-            cursor = await db_conn.execute(
-                """
-                SELECT * FROM tasks 
-                WHERE user_id = ? 
-                AND status = 'pending'
-                AND is_deleted = 0
-                AND due_date IS NOT NULL
-                AND due_date < ?
-                ORDER BY due_date ASC
-                """,
-                (today_start.isoformat(),),
-            )
-            overdue_tasks = await cursor.fetchall()
-
-        all_tasks = today_tasks + overdue_tasks
-
-        if not all_tasks:
+        if not urgent_tasks:
             await message.answer(
                 "🎉 Нет срочных задач!", reply_markup=get_tasks_keyboard()
             )
             return
 
-        await format_and_send_tasks(message, all_tasks, "🚨 Срочные задачи")
+        await format_and_send_tasks(message, urgent_tasks, "🚨 Срочные задачи")
 
     except Exception as e:
         await message.answer(
@@ -729,27 +685,11 @@ async def cmd_upcoming(message: Message):
 
 
 async def show_upcoming_tasks(message: Message):
-    """Показать ближайшие задачи"""
+    """Показать ближайшие задачи - УПРОЩЕННАЯ ВЕРСИЯ"""
     try:
         user_id = message.from_user.id
-        now = datetime.now()
-        week_end = now + timedelta(days=7)
 
-        async with aiosqlite.connect(db.db_path) as db_conn:
-            cursor = await db_conn.execute(
-                """
-                SELECT * FROM tasks 
-                WHERE user_id = ? 
-                AND status = 'pending'
-                AND is_deleted = 0
-                AND due_date IS NOT NULL
-                AND due_date >= ? 
-                AND due_date <= ?
-                ORDER BY due_date ASC
-                """,
-                (user_id, now.isoformat(), week_end.isoformat()),
-            )
-            tasks = await cursor.fetchall()
+        tasks = await db.get_upcoming_tasks(user_id, days=7)
 
         if not tasks:
             await message.answer(
@@ -774,22 +714,10 @@ async def cmd_overdue(message: Message):
 
 
 async def show_overdue_tasks(message: Message):
-    """Показать просроченные задачи"""
+    """Показать просроченные задачи - УПРОЩЕННАЯ ВЕРСИЯ"""
     try:
-        async with aiosqlite.connect(db.db_path) as db_conn:
-            cursor = await db_conn.execute(
-                """
-                SELECT * FROM tasks 
-                WHERE user_id = ? 
-                AND status = 'pending'
-                AND is_deleted = 0
-                AND due_date IS NOT NULL
-                AND due_date < datetime('now')
-                ORDER BY due_date ASC
-                """,
-                (message.from_user.id,),
-            )
-            overdue_tasks = await cursor.fetchall()
+        user_id = message.from_user.id
+        overdue_tasks = await db.get_overdue_tasks(user_id)
 
         if not overdue_tasks:
             await message.answer(
@@ -813,28 +741,10 @@ async def handle_today_tasks(message: Message):
 
 
 async def show_today_tasks(message: Message):
-    """Показать задачи на сегодня"""
+    """Показать задачи на сегодня - УПРОЩЕННАЯ ВЕРСИЯ"""
     try:
         user_id = message.from_user.id
-        today = datetime.now().date()
-        today_start = datetime.combine(today, time.min)
-        today_end = datetime.combine(today, time.max)
-
-        async with aiosqlite.connect(db.db_path) as db_conn:
-            cursor = await db_conn.execute(
-                """
-                SELECT * FROM tasks 
-                WHERE user_id = ? 
-                AND status = 'pending'
-                AND is_deleted = 0
-                AND due_date IS NOT NULL
-                AND due_date >= ? 
-                AND due_date <= ?
-                ORDER BY due_date ASC
-                """,
-                (user_id, today_start.isoformat(), today_end.isoformat()),
-            )
-            tasks = await cursor.fetchall()
+        tasks = await db.get_today_tasks(user_id)
 
         if not tasks:
             await message.answer(
@@ -1646,7 +1556,7 @@ async def process_filter_choice(message: Message, state: FSMContext):
 
 @router.message(StateFilter(TaskFilter.waiting_for_priority))
 async def process_filter_priority(message: Message, state: FSMContext):
-    """Обработка выбора приоритета для фильтрации - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
+    """Обработка выбора приоритета для фильтрации"""
     if await handle_navigation(message, state):
         return
 
@@ -1863,7 +1773,7 @@ async def process_filter_confirmation(message: Message, state: FSMContext):
         data = await state.get_data()
         filters = data.get("current_filters", {})
 
-        tasks = await get_filtered_tasks(message.from_user.id, filters)
+        tasks = await db.get_filtered_tasks(message.from_user.id, filters)
 
         if not tasks:
             await message.answer(
@@ -1908,84 +1818,14 @@ async def apply_single_filter(message: Message, state: FSMContext, filters: dict
     await state.set_state(TaskFilter.waiting_for_confirmation)
 
 
-async def get_filtered_tasks(user_id: int, filters: dict) -> list:
-    """Получить задачи по фильтрам - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
-    try:
-        if filters.get("status") == "completed":
-            all_tasks = await db.get_user_tasks(user_id, "completed")
-        elif filters.get("status") == "deleted":
-            all_tasks = await db.get_deleted_tasks(user_id)
-        else:
-            all_tasks = await db.get_user_tasks(user_id, "pending")
-
-        filtered_tasks = []
-
-        for task in all_tasks:
-            task_data = extract_task_data(task)
-            if not task_data:
-                continue
-
-            task_id, content, due_date, priority, status, is_deleted = task_data
-
-            if filters.get("status") == "deleted" and not is_deleted:
-                continue
-            elif filters.get("status") == "completed" and status != "completed":
-                continue
-            elif filters.get("status") == "pending" and (
-                status != "pending" or is_deleted
-            ):
-                continue
-
-            if "priority" in filters:
-                if filters["priority"] is not None and priority != filters["priority"]:
-                    continue
-
-            if "tag" in filters:
-                task_tags = await db.get_task_tags(task_id)
-                tag_names = [tag[1].lower() for tag in task_tags] if task_tags else []
-                if filters["tag"].lower() not in tag_names:
-                    continue
-
-            if "date" in filters and due_date:
-                try:
-                    due_datetime = datetime.fromisoformat(due_date.replace(" ", "T"))
-                    today = datetime.now().date()
-                    task_date = due_datetime.date()
-
-                    if filters["date"] == "today" and task_date != today:
-                        continue
-                    elif filters[
-                        "date"
-                    ] == "tomorrow" and task_date != today + timedelta(days=1):
-                        continue
-                    elif filters["date"] == "week" and (task_date - today).days > 7:
-                        continue
-                    elif filters["date"] == "overdue" and task_date >= today:
-                        continue
-                except (ValueError, TypeError) as e:
-                    print(f"Error processing date filter: {e}")
-                    continue
-            elif "date" in filters and not due_date:
-                if filters["date"] != "overdue":
-                    continue
-
-            filtered_tasks.append(task)
-
-        return filtered_tasks
-
-    except Exception as e:
-        print(f"Error in get_filtered_tasks: {e}")
-        return []
-
-
 async def count_filtered_tasks(user_id: int, filters: dict) -> int:
     """Посчитать количество задач по фильтрам"""
-    tasks = await get_filtered_tasks(user_id, filters)
+    tasks = await db.get_filtered_tasks(user_id, filters)
     return len(tasks)
 
 
 def describe_filters(filters: dict) -> str:
-    """Описание примененных фильтров на русском - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
+    """Описание примененных фильтров на русском"""
     if not filters:
         return "все задачи"
 
@@ -3016,22 +2856,10 @@ async def cmd_reminder_settings(message: Message):
 
 @router.message(Command("overdue"))
 async def cmd_overdue(message: Message):
-    """Показывает просроченные задачи"""
+    """Показывает просроченные задачи - УПРОЩЕННАЯ ВЕРСИЯ"""
     try:
-        async with aiosqlite.connect(db.db_path) as db_conn:
-            cursor = await db_conn.execute(
-                """
-                SELECT * FROM tasks 
-                WHERE user_id = ? 
-                AND status = 'pending'
-                AND is_deleted = 0
-                AND due_date IS NOT NULL
-                AND due_date < datetime('now')
-                ORDER BY due_date ASC
-                """,
-                (message.from_user.id,),
-            )
-            overdue_tasks = await cursor.fetchall()
+        user_id = message.from_user.id
+        overdue_tasks = await db.get_overdue_tasks(user_id)
 
         if not overdue_tasks:
             await message.answer(
@@ -3069,7 +2897,7 @@ async def cmd_overdue(message: Message):
             else:
                 tasks_text += f"   ⏰ Просрочена: {int(overdue_time.total_seconds() / 3600)} часов\n\n"
 
-        stats = await db.get_overdue_tasks_stats(message.from_user.id)
+        stats = await db.get_overdue_tasks_stats(user_id)
         tasks_text += f"📊 Всего просроченных задач: <b>{stats['total_overdue']}</b>"
 
         await message.answer(
@@ -3085,85 +2913,59 @@ async def cmd_upcoming(message: Message):
     """Показывает задачи с приближающимися сроками"""
     try:
         user_id = message.from_user.id
-
-        settings = await db.get_reminder_settings(user_id)
-        reminder_hours = settings[2] if settings else 2
-
-        now = datetime.now()
-
-        time_ranges = [
-            {
-                "name": "🔥 СЕГОДНЯ",
-                "start": now,
-                "end": now.replace(hour=23, minute=59, second=59),
-                "emoji": "🔥",
-            },
-            {
-                "name": "🔔 СКОРО",
-                "start": now,
-                "end": now + timedelta(hours=reminder_hours),
-                "emoji": "🔔",
-            },
-        ]
+        today_tasks = await db.get_today_tasks(user_id)
+        urgent_tasks = await db.get_urgent_tasks(user_id)
+        soon_tasks = [task for task in urgent_tasks if task not in today_tasks]
 
         tasks_text = "⏰ <b>Задачи с приближающимися сроками</b>\n\n"
 
-        has_tasks = False
+        if today_tasks:
+            tasks_text += f"🔥 <b>СЕГОДНЯ</b> ({len(today_tasks)}):\n"
+            for task in today_tasks[:3]:
+                task_data = extract_task_data(task)
+                if task_data:
+                    task_id, content, due_date, priority, status, is_deleted = task_data
+                    priority_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(
+                        priority, "🟡"
+                    )
 
-        for time_range in time_ranges:
-            async with aiosqlite.connect(db.db_path) as db_conn:
-                cursor = await db_conn.execute(
-                    """
-                    SELECT id, content, due_date, priority, status
-                    FROM tasks 
-                    WHERE user_id = ? 
-                    AND status = 'pending'
-                    AND is_deleted = 0
-                    AND due_date IS NOT NULL
-                    AND due_date >= ? 
-                    AND due_date <= ?
-                    ORDER BY due_date ASC
-                    """,
-                    (
-                        user_id,
-                        time_range["start"].isoformat(),
-                        time_range["end"].isoformat(),
-                    ),
-                )
-                tasks = await cursor.fetchall()
+                    display_content = (
+                        content[:35] + "..." if len(content) > 35 else content
+                    )
+                    tasks_text += (
+                        f"{priority_icon} <b>#{task_id}</b> {display_content}\n"
+                    )
+            tasks_text += "\n"
 
-            if tasks:
-                has_tasks = True
-                tasks_text += f"{time_range['emoji']} <b>{time_range['name']}</b> ({len(tasks)}):\n"
+        if soon_tasks:
+            tasks_text += f"🔔 <b>СКОРО</b> ({len(soon_tasks)}):\n"
+            for task in soon_tasks[:3]:
+                task_data = extract_task_data(task)
+                if task_data:
+                    task_id, content, due_date, priority, status, is_deleted = task_data
+                    priority_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(
+                        priority, "🟡"
+                    )
 
-                for task in tasks:
-                    task_id, content, due_date, priority, status = task
-
-                    display_content = content
-                    if len(display_content) > 35:
-                        display_content = display_content[:35] + "..."
-
-                    due_datetime = datetime.fromisoformat(due_date)
-                    time_left = due_datetime - now
-
-                    priority_icons = {"high": "🔴", "medium": "🟡", "low": "🟢"}
-                    priority_icon = priority_icons.get(priority, "🟡")
+                    display_content = (
+                        content[:35] + "..." if len(content) > 35 else content
+                    )
+                    due_datetime = datetime.fromisoformat(due_date.replace(" ", "T"))
+                    time_left = due_datetime - datetime.now()
 
                     if time_left.days > 0:
                         time_text = f"через {time_left.days} дн"
-                    elif time_left.seconds >= 3600:
+                    else:
                         hours_left = time_left.seconds // 3600
                         time_text = f"через {hours_left} ч"
-                    else:
-                        minutes_left = time_left.seconds // 60
-                        time_text = f"через {minutes_left} мин"
 
                     tasks_text += (
                         f"{priority_icon} <b>#{task_id}</b> {display_content}\n"
                     )
-                    tasks_text += f"   📅 {due_datetime.strftime('%d.%m %H:%M')} ({time_text})\n\n"
+                    tasks_text += f"   📅 {time_text}\n"
+            tasks_text += "\n"
 
-        if not has_tasks:
+        if not today_tasks and not soon_tasks:
             tasks_text += "🎉 Нет задач с приближающимися сроками!\n\n"
             tasks_text += "💡 Создайте новые задачи с дедлайнами"
 
@@ -3352,62 +3154,92 @@ async def group_by_tags(message: Message, state: FSMContext):
 
 
 async def group_by_priority(message: Message, state: FSMContext):
-    """Группировка задач по приоритетам - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
+    """Группировка задач по приоритетам"""
     user_id = message.from_user.id
 
     try:
-        tasks = await db.get_user_tasks_with_priority(user_id, "pending")
+        priority_stats = await db.get_tasks_grouped_by_priority_detailed(user_id)
 
-        if not tasks:
+        if not priority_stats:
             await message.answer(
                 "🎉 Нет активных задач для группировки!",
                 reply_markup=get_tasks_keyboard(),
             )
             return
 
-        tasks_by_priority = {"high": [], "medium": [], "low": []}
-
-        for task in tasks:
-            task_data = extract_task_data(task)
-            if not task_data:
-                continue
-
-            task_id, content, due_date, priority, status, is_deleted = task_data
-            if priority in tasks_by_priority:
-                tasks_by_priority[priority].append(task_data)
+        high_tasks = await db.get_tasks_by_priority(user_id, "high")
+        medium_tasks = await db.get_tasks_by_priority(user_id, "medium")
+        low_tasks = await db.get_tasks_by_priority(user_id, "low")
 
         grouped_text = "🎯 <b>ГРУППИРОВКА ПО ПРИОРИТЕТАМ</b> 🎯\n\n"
 
         priority_info = {
-            "high": {"icon": "🔴", "name": "ВЫСОКИЙ ПРИОРИТЕТ"},
-            "medium": {"icon": "🟡", "name": "СРЕДНИЙ ПРИОРИТЕТ"},
-            "low": {"icon": "🟢", "name": "НИЗКИЙ ПРИОРИТЕТ"},
+            "high": {"icon": "🔴", "name": "ВЫСОКИЙ ПРИОРИТЕТ", "tasks": high_tasks},
+            "medium": {
+                "icon": "🟡",
+                "name": "СРЕДНИЙ ПРИОРИТЕТ",
+                "tasks": medium_tasks,
+            },
+            "low": {"icon": "🟢", "name": "НИЗКИЙ ПРИОРИТЕТ", "tasks": low_tasks},
         }
 
-        for priority, info in priority_info.items():
-            tasks_list = tasks_by_priority[priority]
-            if tasks_list:
+        total_tasks = 0
+
+        for priority_data in priority_stats:
+            priority, total, overdue, no_date = priority_data
+            total_tasks += total
+
+            if priority in priority_info and total > 0:
+                info = priority_info[priority]
+                tasks_list = info["tasks"]
+
                 grouped_text += (
-                    f"{info['icon']} <b>{info['name']}</b> ({len(tasks_list)} задач):\n"
+                    f"{info['icon']} <b>{info['name']}</b> ({total} задач):\n"
                 )
 
-                for task_data in tasks_list[:5]:
-                    task_id, content, due_date, priority, status, is_deleted = task_data
+                if overdue > 0:
+                    grouped_text += f"   ⚠️ Просрочено: {overdue}\n"
+                if no_date > 0:
+                    grouped_text += f"   ⏳ Без срока: {no_date}\n"
 
-                    display_content = (
-                        content[:30] + "..." if len(content) > 30 else content
-                    )
-                    due_text = format_due_date(due_date)
+                for task in tasks_list:
+                    task_data = extract_task_data(task)
+                    if task_data:
+                        (
+                            task_id,
+                            content,
+                            due_date,
+                            task_priority,
+                            status,
+                            is_deleted,
+                        ) = task_data
 
-                    grouped_text += f"   #{task_id} {display_content}\n"
-                    grouped_text += f"      {due_text}\n"
+                        display_content = (
+                            content[:25] + "..." if len(content) > 25 else content
+                        )
+                        due_text = format_due_date(due_date)
 
-                if len(tasks_list) > 5:
-                    grouped_text += f"   ... и еще {len(tasks_list) - 5} задач\n"
+                        grouped_text += f"   #{task_id} {display_content}\n"
+                        if due_date:
+                            grouped_text += f"      {due_text}\n"
+
+                if len(tasks_list) > 3:
+                    grouped_text += f"   ... и еще {len(tasks_list) - 3} задач\n"
                 grouped_text += "\n"
 
-        total_tasks = sum(len(tasks) for tasks in tasks_by_priority.values())
-        grouped_text += f"📊 <b>Всего активных задач:</b> {total_tasks}"
+        grouped_text += f"📊 <b>ОБЩАЯ СТАТИСТИКА:</b>\n"
+        for priority_data in priority_stats:
+            priority, total, overdue, no_date = priority_data
+            if total > 0:
+                icon = priority_info[priority]["icon"]
+                grouped_text += (
+                    f"   {icon} {priority_info[priority]['name']}: {total} задач"
+                )
+                if overdue > 0:
+                    grouped_text += f" (⚠️{overdue})"
+                grouped_text += "\n"
+
+        grouped_text += f"   📊 Всего активных задач: {total_tasks}"
 
         await message.answer(
             grouped_text, parse_mode="HTML", reply_markup=get_tasks_keyboard()
@@ -3526,7 +3358,7 @@ async def group_by_date(message: Message, state: FSMContext):
 
 
 async def group_by_status(message: Message, state: FSMContext):
-    """Группировка задач по статусам - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
+    """Группировка задач по статусам"""
     user_id = message.from_user.id
 
     try:
