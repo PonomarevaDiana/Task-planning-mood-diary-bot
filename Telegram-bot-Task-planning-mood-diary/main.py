@@ -4,13 +4,12 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from config import Config
 from database import db
+from reminders import init_reminder_manager
 from handlers.tasks import router as tasks_router
 from handlers.moods import router as moods_router
 from handlers.statistics import router as stats_router
 from handlers.common import router as common_router
 from datetime import datetime, timedelta
-
-from reminders import init_reminder_manager
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"

@@ -379,7 +379,7 @@ async def count_filtered_tasks(user_id: int, filters: dict) -> int:
 
 
 async def get_storage_stats(user_id: int) -> str:
-    """Получить статистику хранилища - УПРОЩЕННАЯ ВЕРСИЯ"""
+    """Получить статистику хранилища"""
     storage_stats = await db.get_storage_statistics(user_id)
 
     task_stats = await db.get_task_statistics(user_id, days=365)
@@ -656,7 +656,7 @@ async def cmd_urgent(message: Message):
 
 
 async def show_urgent_tasks(message: Message):
-    """Показать срочные задачи - УПРОЩЕННАЯ ВЕРСИЯ"""
+    """Показать срочные задачи"""
     try:
         user_id = message.from_user.id
 
@@ -1394,6 +1394,7 @@ async def process_new_date(message: Message, state: FSMContext):
 
 @router.message(StateFilter(TaskEdit.waiting_for_new_time))
 async def process_new_time(message: Message, state: FSMContext):
+    print(f"DEBUG: Дошел до process_new_time, текст: {message.text}")
     """Обработка нового времени"""
     if await handle_navigation(message, state):
         return
@@ -1425,6 +1426,21 @@ async def process_new_time(message: Message, state: FSMContext):
             return
 
     await db.update_task_due_date(task_id, due_datetime)
+
+    print(f"DEBUG: reminder_manager внутри функции = {reminder_manager}")
+    if reminder_manager:
+        try:
+            print(f"🔄 Обновляем напоминания для задачи #{task_id}")
+            await reminder_manager.update_reminders_for_edited_task(
+                user_id=message.from_user.id, task_id=task_id, new_due_date=due_datetime
+            )
+            response_text += "\n🔔 Напоминания обновлены!"
+        except Exception as e:
+            print(f"❌ Ошибка при обновлении напоминаний: {e}")
+            response_text += "\n⚠️ Не удалось обновить напоминания"
+    else:
+        print(f"❌ Ошибка при обновлении напоминаний")
+
     await message.answer(f"{response_text}\nID задачи: {task_id}")
     await message.answer(
         "🔄 Хотите изменить что-то еще в этой задаче?",
@@ -3448,7 +3464,7 @@ async def group_by_status(message: Message, state: FSMContext):
 
 
 async def combined_grouping(message: Message, state: FSMContext):
-    """Упрощенная комбинированная группировка по приоритету и дате"""
+    """Комбинированная группировка по приоритету и дате"""
     user_id = message.from_user.id
 
     try:

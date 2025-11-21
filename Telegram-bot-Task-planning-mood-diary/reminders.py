@@ -27,23 +27,16 @@ class ReminderManager:
 
     async def _reminder_worker(self):
         """Фоновая задача для обработки напоминаний"""
-        print("🔄 Reminder worker начал работу")
         iteration = 0
 
         while self.is_running:
             try:
                 iteration += 1
-                print(
-                    f"🔍 Reminder worker итерация {iteration} в {datetime.now().strftime('%H:%M:%S')}"
-                )
-
                 await self._create_deadline_reminders()
                 await self._create_overdue_reminders()
                 await self.check_daily_overdue_notifications()
                 await self._send_pending_reminders()
                 await self._cleanup_old_reminders()
-
-                print(f"✅ Итерация {iteration} завершена, ожидание 60 секунд...")
                 await asyncio.sleep(60)
 
             except Exception as e:
@@ -66,35 +59,8 @@ class ReminderManager:
 
     async def _create_deadline_reminders(self):
         """Создание напоминаний о приближающихся дедлайнах"""
-        print("⏰ Создание напоминаний о дедлайнах...")
-
         try:
-            async with aiosqlite.connect(self.db_path) as conn:
-                cursor = await conn.execute(
-                    """
-                    SELECT 
-                        t.id, t.user_id, t.due_date, 
-                        COALESCE(rs.reminder_before_hours, 1) as reminder_hours
-                    FROM tasks t
-                    LEFT JOIN reminder_settings rs ON t.user_id = rs.user_id
-                    WHERE t.status = 'pending'
-                    AND t.is_deleted = 0
-                    AND t.due_date IS NOT NULL
-                    AND t.due_date > datetime('now')
-                    AND NOT EXISTS (
-                        SELECT 1 FROM task_reminders tr 
-                        WHERE tr.task_id = t.id 
-                        AND tr.reminder_type = 'deadline'
-                    )
-                    AND (rs.enable_reminders = 1 OR rs.enable_reminders IS NULL)
-                """
-                )
-
-                tasks_for_reminders = await cursor.fetchall()
-
-            print(
-                f"🔍 Найдено задач для напоминаний о дедлайнах: {len(tasks_for_reminders)}"
-            )
+            tasks_for_reminders = await db.get_tasks_for_deadline_reminders()
 
             for task_id, user_id, due_date_str, reminder_hours in tasks_for_reminders:
                 try:
@@ -109,11 +75,6 @@ class ReminderManager:
                             reminder_type="deadline",
                             scheduled_time=reminder_time,
                         )
-                        print(
-                            f"✅ Создано напоминание для задачи {task_id} на {reminder_time}"
-                        )
-                    else:
-                        print(f"⏰ Время напоминания для задачи {task_id} уже прошло")
 
                 except Exception as e:
                     print(
@@ -125,118 +86,41 @@ class ReminderManager:
 
     async def _debug_overdue_tasks(self):
         """Диагностика почему не находятся просроченные задачи"""
-        print("🔍 [OVERDUE DEBUG] Диагностика просроченных задач...")
-
         try:
-            async with aiosqlite.connect(self.db_path) as conn:
-                cursor = await conn.execute(
-                    """
-                    SELECT 
-                        t.id, t.user_id, t.due_date, t.status, t.is_deleted,
-                        rs.enable_overdue_reminders,
-                        EXISTS (
-                            SELECT 1 FROM task_reminders tr 
-                            WHERE tr.task_id = t.id 
-                            AND tr.reminder_type = 'overdue_immediate'
-                        ) as has_reminder
-                    FROM tasks t
-                    LEFT JOIN reminder_settings rs ON t.user_id = rs.user_id
-                    WHERE t.status = 'pending'
-                    AND t.is_deleted = 0
-                    AND t.due_date IS NOT NULL
-                    AND t.due_date < datetime('now')
-                    ORDER BY t.due_date DESC
-                    LIMIT 10
-                    """
-                )
-                all_overdue = await cursor.fetchall()
+            all_overdue = await self.get_overdue_tasks_for_debug()
+            found_tasks = await self.get_overdue_tasks_without_reminders()
+
+            for task in all_overdue:
+                (
+                    task_id,
+                    user_id,
+                    due_date,
+                    status,
+                    is_deleted,
+                    enable_overdue,
+                    has_reminder,
+                ) = task
 
                 print(
-                    f"🔍 [OVERDUE DEBUG] Всего просроченных задач: {len(all_overdue)}"
+                    f"📋 Задача {task_id}: due_date={due_date}, "
+                    f"enable_overdue={enable_overdue}, has_reminder={has_reminder}"
                 )
 
-                for task in all_overdue:
-                    (
-                        task_id,
-                        user_id,
-                        due_date,
-                        status,
-                        is_deleted,
-                        enable_overdue,
-                        has_reminder,
-                    ) = task
-                    print(
-                        f"   - Задача {task_id}: due_date={due_date}, status={status}, "
-                        f"deleted={is_deleted}, enable_overdue={enable_overdue}, "
-                        f"has_reminder={has_reminder}"
-                    )
-                cursor = await conn.execute(
-                    """
-                    SELECT DISTINCT t.id, t.user_id, t.due_date
-                    FROM tasks t
-                    LEFT JOIN reminder_settings rs ON t.user_id = rs.user_id
-                    WHERE t.status = 'pending'
-                    AND t.is_deleted = 0
-                    AND t.due_date IS NOT NULL
-                    AND t.due_date < datetime('now')
-                    AND NOT EXISTS (
-                        SELECT 1 FROM task_reminders tr 
-                        WHERE tr.task_id = t.id 
-                        AND tr.reminder_type = 'overdue_immediate'
-                    )
-                    AND (rs.enable_overdue_reminders = 1 OR rs.enable_overdue_reminders IS NULL)
-                    """
+            for task in found_tasks:
+                task_id, user_id, due_date = task
+                print(
+                    f"✅ Найдена для уведомления: задача {task_id}, due_date={due_date}"
                 )
-                found_tasks = await cursor.fetchall()
-
-                print(f"🔍 [OVERDUE DEBUG] Задачи для напоминаний: {len(found_tasks)}")
-                for task in found_tasks:
-                    print(f"   - Будет создано напоминание для задачи {task[0]}")
 
         except Exception as e:
             print(f"❌ [OVERDUE DEBUG] Ошибка диагностики: {e}")
 
     async def _create_overdue_reminders(self):
-        """Создание ОДНОРАЗОВЫХ напоминаний о новых просроченных задачах - МАКСИМАЛЬНАЯ ОТЛАДКА"""
-        print("⚠️ Создание напоминаний о новых просрочках...")
-
+        """Создание одноразовых напоминаний о новых просроченных задачах"""
         try:
-            async with aiosqlite.connect(self.db_path) as conn:
-                print("🔍 [OVERDUE] Подключились к БД")
-
-                cursor = await conn.execute("SELECT datetime('now', 'localtime')")
-                db_time = (await cursor.fetchone())[0]
-                print(f"🕒 [OVERDUE] Время в БД: {db_time}")
-
-                cursor = await conn.execute(
-                    """
-                    SELECT DISTINCT
-                        t.id, t.user_id, t.content, t.due_date
-                    FROM tasks t
-                    LEFT JOIN reminder_settings rs ON t.user_id = rs.user_id
-                    WHERE t.status = 'pending'
-                    AND t.is_deleted = 0
-                    AND t.due_date IS NOT NULL
-                    AND datetime(t.due_date) < datetime('now', 'localtime')
-                    AND NOT EXISTS (
-                        SELECT 1 FROM task_reminders tr 
-                        WHERE tr.task_id = t.id 
-                        AND tr.reminder_type = 'overdue_immediate'
-                    )
-                    AND (rs.enable_overdue_reminders = 1 OR rs.enable_overdue_reminders IS NULL)
-                    """
-                )
-                print("🔍 [OVERDUE] Запрос выполнен")
-
-                new_overdue_tasks = await cursor.fetchall()
-                print(
-                    f"🔍 [OVERDUE] Получены результаты: {len(new_overdue_tasks)} задач"
-                )
-
-            print(
-                f"🔍 [OVERDUE] Найдено новых просроченных задач: {len(new_overdue_tasks)}"
-            )
-
+            db_time = await db.get_database_local_time()
+            new_overdue_tasks = await db.get_new_overdue_tasks_for_reminders()
+            created_count = 0
             for task_id, user_id, content, due_date_str in new_overdue_tasks:
                 try:
                     reminder_id = await self.create_task_reminder(
@@ -247,10 +131,11 @@ class ReminderManager:
                     )
 
                     if reminder_id:
-                        print(f"✅ [OVERDUE] Напоминание создано! ID: {reminder_id}")
+                        created_count += 1
+                        print(f"✅ [OVERDUE] Создано напоминание для задачи {task_id}")
                     else:
                         print(
-                            f"❌ [OVERDUE] create_task_reminder вернул None для задачи {task_id}"
+                            f"❌ [OVERDUE] Не удалось создать напоминание для задачи {task_id}"
                         )
 
                 except Exception as e:
@@ -261,7 +146,7 @@ class ReminderManager:
 
                     traceback.print_exc()
 
-            print(f"✅ [OVERDUE] Обработка завершена")
+            print(f"📊 [OVERDUE] Итого создано напоминаний: {created_count}")
 
         except Exception as e:
             print(f"❌ [OVERDUE] Ошибка в _create_overdue_reminders: {e}")
@@ -272,66 +157,53 @@ class ReminderManager:
     async def check_daily_overdue_notifications(self):
         """Проверяет и отправляет ежедневные уведомления о просроченных задачах"""
         try:
-            async with aiosqlite.connect(self.db_path) as conn:
-                cursor = await conn.execute(
-                    """
-                    SELECT 
-                        u.id, 
-                        COALESCE(rs.daily_overdue_time, '09:00') as notification_time,
-                        rs.enable_overdue_reminders
-                    FROM users u
-                    LEFT JOIN reminder_settings rs ON u.id = rs.user_id
-                    WHERE rs.enable_overdue_reminders = 1 OR rs.enable_overdue_reminders IS NULL
-                """
-                )
-                users_settings = await cursor.fetchall()
-
+            users_settings = await db.get_users_for_daily_overdue_notifications()
             current_time = datetime.now().strftime("%H:%M")
             sent_count = 0
 
             for user_id, notification_time, enable_overdue in users_settings:
-                if not enable_overdue:
+                try:
+                    if not enable_overdue:
+                        continue
+
+                    if current_time == notification_time:
+
+                        overdue_tasks = await db.get_overdue_tasks_for_user_daily(
+                            user_id
+                        )
+
+                        if overdue_tasks:
+                            success = await self.send_daily_overdue_notification(
+                                user_id, overdue_tasks
+                            )
+                            if success:
+                                sent_count += 1
+                            else:
+                                print(
+                                    f"❌ [DAILY OVERDUE] Ошибка отправки пользователю {user_id}"
+                                )
+                        else:
+                            print(
+                                f"ℹ [DAILY OVERDUE] Нет просроченных задач для пользователя {user_id}"
+                            )
+                    else:
+                        print(
+                            f" [DAILY OVERDUE] Время не совпало для {user_id} ({current_time} != {notification_time})"
+                        )
+
+                except Exception as e:
+                    print(
+                        f"❌ [DAILY OVERDUE] Ошибка обработки пользователя {user_id}: {e}"
+                    )
                     continue
 
-                if current_time == notification_time:
-                    overdue_tasks = await self.get_overdue_tasks_for_user_daily(user_id)
-                    if overdue_tasks:
-                        sent_count += await self.send_daily_overdue_notification(
-                            user_id, overdue_tasks
-                        )
-                        print(
-                            f"✅ Отправлено ежедневное уведомление пользователю {user_id}"
-                        )
-
-            if sent_count > 0:
-                print(f"📨 Всего отправлено ежедневных уведомлений: {sent_count}")
-
         except Exception as e:
-            print(f"❌ Ошибка при проверке ежедневных уведомлений: {e}")
-
-    async def get_overdue_tasks_for_user_daily(self, user_id: int):
-        """Получает просроченные задачи для ежедневного уведомления пользователя"""
-        async with aiosqlite.connect(self.db_path) as conn:
-            cursor = await conn.execute(
-                """
-                SELECT 
-                    t.id, t.content, t.due_date, t.priority,
-                    t.last_overdue_notification
-                FROM tasks t
-                WHERE t.user_id = ? 
-                AND t.status = 'pending' 
-                AND t.is_deleted = 0
-                AND t.due_date IS NOT NULL
-                AND t.due_date < datetime('now')
-                AND (
-                    t.last_overdue_notification IS NULL 
-                    OR date(t.last_overdue_notification) < date('now')
-                )
-                ORDER BY t.due_date ASC
-            """,
-                (user_id,),
+            print(
+                f"❌ [DAILY OVERDUE] Критическая ошибка при проверке ежедневных уведомлений: {e}"
             )
-            return await cursor.fetchall()
+            import traceback
+
+            traceback.print_exc()
 
     async def send_daily_overdue_notification(self, user_id: int, overdue_tasks):
         """Отправляет ежедневное уведомление о просроченных задачах"""
@@ -344,7 +216,17 @@ class ReminderManager:
             low_priority = []
 
             for task in overdue_tasks:
-                task_id, content, due_date, priority, last_notification = task
+                (
+                    task_id,
+                    task_user_id,
+                    content,
+                    due_date,
+                    priority,
+                    last_notification,
+                    enable_overdue,
+                    first_name,
+                ) = task
+
                 task_info = {
                     "id": task_id,
                     "content": content,
@@ -368,7 +250,8 @@ class ReminderManager:
             )
 
             for task in overdue_tasks:
-                await db.update_last_overdue_notification(task[0])
+                task_id = task[0]
+                await db.update_last_overdue_notification(task_id)
 
             return 1
 
@@ -446,7 +329,6 @@ class ReminderManager:
 
     async def _send_pending_reminders(self):
         """Отправляет готовые напоминания"""
-        print("📤 Отправка готовых напоминаний...")
 
         try:
             reminders = await db.get_pending_reminders()
@@ -483,9 +365,6 @@ class ReminderManager:
 
                     await db.mark_reminder_sent(reminder_id)
                     sent_count += 1
-                    print(
-                        f"✅ Отправлено напоминание {reminder_id} для задачи {task_id}"
-                    )
 
                     await asyncio.sleep(0.3)
 
@@ -494,9 +373,6 @@ class ReminderManager:
                     await db.mark_reminder_sent(reminder_id)
                 except Exception as e:
                     print(f"❌ Ошибка при отправке напоминания {reminder[0]}: {e}")
-
-            if sent_count > 0:
-                print(f"📨 Всего отправлено напоминаний: {sent_count}")
 
         except Exception as e:
             print(f"❌ Ошибка в _send_pending_reminders: {e}")
@@ -607,7 +483,6 @@ class ReminderManager:
 
     async def _cleanup_old_reminders(self):
         """Очищает старые отправленные напоминания"""
-        print("🧹 Очистка старых напоминаний...")
         try:
             async with aiosqlite.connect(self.db_path) as conn:
                 cursor = await conn.execute(
@@ -615,9 +490,6 @@ class ReminderManager:
                 )
                 deleted_count = cursor.rowcount
                 await conn.commit()
-
-            if deleted_count > 0:
-                print(f"✅ Очищено старых напоминаний: {deleted_count}")
 
         except Exception as e:
             print(f"❌ Ошибка при очистке напоминаний: {e}")
@@ -645,13 +517,22 @@ class ReminderManager:
                     reminder_type="deadline",
                     scheduled_time=reminder_time,
                 )
-                print(f"✅ Создано напоминание для новой задачи {task_id}")
-            else:
-                print(f"⏰ Время напоминания для новой задачи {task_id} уже прошло")
 
         except Exception as e:
             print(f"❌ Ошибка при создании напоминания для новой задачи: {e}")
             logger.error(f"Error creating reminder for new task: {e}")
+
+    async def update_reminders_for_edited_task(
+        self, user_id: int, task_id: int, new_due_date: datetime
+    ):
+        """Обновляет напоминания для отредактированной задачи"""
+        try:
+            await db.delete_task_reminders(task_id)
+            await self.create_reminder_for_new_task(user_id, task_id, new_due_date)
+
+        except Exception as e:
+            print(f"ERROR: Failed to update reminders for task {task_id}: {e}")
+            raise
 
 
 reminder_manager = None

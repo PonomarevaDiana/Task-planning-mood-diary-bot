@@ -436,10 +436,6 @@ class Database:
     async def update_mood_notes(self, user_id: int, notes: str):
         """Обновляет только заметку к сегодняшнему настроению"""
         try:
-            print(f"🔍 [UPDATE_MOOD_NOTES] Начинаем обновление заметки:")
-            print(f"   - user_id: {user_id}")
-            print(f"   - notes: {notes}")
-            print(f"   - notes type: {type(notes)}")
 
             async with aiosqlite.connect(self.db_path) as db:
                 cursor = await db.execute(
@@ -447,8 +443,6 @@ class Database:
                     (user_id,),
                 )
                 existing_mood = await cursor.fetchone()
-
-                print(f"🔍 [UPDATE_MOOD_NOTES] Найдена запись: {existing_mood}")
 
                 if not existing_mood:
                     print("❌ [UPDATE_MOOD_NOTES] Нет записи настроения на сегодня")
@@ -461,7 +455,6 @@ class Database:
                 await db.commit()
 
                 changes = result.rowcount
-                print(f"✅ [UPDATE_MOOD_NOTES] Обновлено строк: {changes}")
 
                 return changes > 0
 
@@ -742,20 +735,10 @@ class Database:
     ):
         """Создает напоминание для задачи"""
         async with aiosqlite.connect(self.db_path) as db:
-            print(f"🔍 [CREATE_REMINDER] Пытаемся создать напоминание:")
-            print(f"   - user_id: {user_id}")
-            print(f"   - task_id: {task_id}")
-            print(f"   - reminder_type: {reminder_type}")
-            print(f"   - scheduled_time: {scheduled_time}")
 
             try:
                 if reminder_type == "overdue_immediate":
                     actual_scheduled_time = datetime.now() - timedelta(minutes=1)
-                    print(
-                        f"🔄 [CREATE_REMINDER] Исправляем время для немедленного напоминания:"
-                    )
-                    print(f"   Было: {scheduled_time}")
-                    print(f"   Стало: {actual_scheduled_time}")
                 else:
                     actual_scheduled_time = scheduled_time
 
@@ -772,16 +755,14 @@ class Database:
                 )
                 await db.commit()
                 reminder_id = cursor.lastrowid
-                print(f"✅ [CREATE_REMINDER] Напоминание создано! ID: {reminder_id}")
                 return reminder_id
             except Exception as e:
                 print(f"❌ [CREATE_REMINDER] Ошибка при создании напоминания: {e}")
                 return None
 
     async def get_pending_reminders(self, limit: int = 100):
-        """Получает готовые к отправке напоминания - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
+        """Получает готовые к отправке напоминания"""
         try:
-            print("🔍 [GET_PENDING_REMINDERS] Начинаем поиск напоминаний...")
 
             async with aiosqlite.connect(self.db_path) as db:
                 cursor = await db.execute(
@@ -789,9 +770,6 @@ class Database:
                 )
                 times = await cursor.fetchone()
                 current_utc, current_local = times
-                print(
-                    f"🕒 Текущее время в БД - UTC: {current_utc}, Local: {current_local}"
-                )
                 cursor = await db.execute(
                     """
                     SELECT 
@@ -809,10 +787,6 @@ class Database:
                 )
                 found_reminders = await cursor.fetchall()
 
-                print(
-                    f"✅ [GET_PENDING_REMINDERS] Найдено напоминаний: {len(found_reminders)}"
-                )
-
                 for rem in found_reminders:
                     (
                         reminder_id,
@@ -827,16 +801,12 @@ class Database:
                         due_date,
                         priority,
                     ) = rem
-                    print(
-                        f"   - Будет отправлено: ID {reminder_id}, задача {task_id}, время {scheduled_time}"
-                    )
 
                     cursor_check = await db.execute(
                         "SELECT ? <= datetime('now') as is_due_utc",
                         (scheduled_time,),
                     )
                     is_due_utc = (await cursor_check.fetchone())[0]
-                    print(f"     → UTC проверка: {is_due_utc}")
 
                 return found_reminders
 
@@ -895,48 +865,6 @@ class Database:
             )
             return await cursor.fetchone()
 
-    async def get_overdue_tasks_needing_reminders(self):
-        """Получает просроченные задачи для напоминаний"""
-        async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                """
-                SELECT 
-                    t.id, t.user_id, t.content, t.due_date, t.priority, t.status,
-                    t.created_at, t.completed_at, t.is_deleted,
-                    rs.enable_overdue_reminders,
-                    COALESCE(rs.overdue_reminder_interval_hours, 24) as overdue_reminder_interval_hours
-                FROM tasks t
-                JOIN users u ON t.user_id = u.id
-                JOIN reminder_settings rs ON u.id = rs.user_id
-                WHERE t.status = 'pending'
-                AND t.is_deleted = 0
-                AND t.due_date IS NOT NULL
-                AND t.due_date < datetime('now')
-                AND NOT EXISTS (
-                    SELECT 1 FROM task_reminders tr 
-                    WHERE tr.task_id = t.id 
-                    AND tr.reminder_type = 'overdue'
-                    AND tr.sent_at >= datetime('now', ?)
-                )
-                AND rs.enable_overdue_reminders = 1
-                """,
-                (f"-{24} hours",),
-            )
-            return await cursor.fetchall()
-
-    async def cleanup_old_reminders(self, days_old: int = 7):
-        """Удаляет старые отправленные напоминания"""
-        async with aiosqlite.connect(self.db_path) as db:
-            cutoff_date = (datetime.now() - timedelta(days=days_old)).isoformat()
-
-            result = await db.execute(
-                "DELETE FROM task_reminders WHERE sent = 1 AND sent_at <= ?",
-                (cutoff_date,),
-            )
-
-            await db.commit()
-            return result.rowcount
-
     async def get_overdue_tasks_stats(self, user_id: int):
         """Получает статистику по просроченным задачам"""
         async with aiosqlite.connect(self.db_path) as db:
@@ -974,62 +902,6 @@ class Database:
                 "overdue_by_priority": overdue_by_priority,
             }
 
-    async def fix_reminder_settings(self, user_id: int):
-        """Исправляет настройки напоминаний, устанавливая значения по умолчанию для None"""
-        async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                "SELECT * FROM reminder_settings WHERE user_id = ?", (user_id,)
-            )
-            settings = await cursor.fetchone()
-
-            if not settings:
-                await db.execute(
-                    "INSERT INTO reminder_settings (user_id, enable_reminders, reminder_before_hours, enable_overdue_reminders) VALUES (?, 1, 1, 1)",
-                    (user_id,),
-                )
-                await db.commit()
-                print(f"✅ Созданы настройки по умолчанию для пользователя {user_id}")
-                return
-
-            updates = {}
-            if settings[1] is None:
-                updates["enable_reminders"] = 1
-            if settings[2] is None:
-                updates["reminder_before_hours"] = 1
-            if settings[3] is None:
-                updates["enable_overdue_reminders"] = 1
-
-            if updates:
-                set_clause = ", ".join([f"{key} = ?" for key in updates.keys()])
-                values = list(updates.values())
-                values.append(user_id)
-
-                await db.execute(
-                    f"UPDATE reminder_settings SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
-                    values,
-                )
-                await db.commit()
-                print(f"✅ Исправлены настройки для пользователя {user_id}: {updates}")
-
-    async def check_all_tasks_for_reminders(self):
-        """Принудительно проверяет все задачи и создает напоминания"""
-        async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                """
-                SELECT 
-                    t.id, t.user_id, t.content, t.due_date, t.priority,
-                    COALESCE(rs.reminder_before_hours, 1) as reminder_before_hours
-                FROM tasks t
-                LEFT JOIN reminder_settings rs ON t.user_id = rs.user_id
-                WHERE t.status = 'pending' 
-                    AND t.is_deleted = 0
-                    AND t.due_date IS NOT NULL
-                    AND t.due_date > datetime('now')
-                    AND (rs.enable_reminders = 1 OR rs.enable_reminders IS NULL)
-                """
-            )
-            return await cursor.fetchall()
-
     async def update_last_overdue_notification(self, task_id: int):
         """Обновляет время последнего уведомления о просрочке"""
         async with aiosqlite.connect(self.db_path) as conn:
@@ -1038,42 +910,6 @@ class Database:
                 (task_id,),
             )
             await conn.commit()
-
-    async def get_last_overdue_notification(self, task_id: int):
-        """Получает время последнего уведомления о просрочке"""
-        async with aiosqlite.connect(self.db_path) as conn:
-            cursor = await conn.execute(
-                "SELECT last_overdue_notification FROM tasks WHERE id = ?", (task_id,)
-            )
-            result = await cursor.fetchone()
-            return result[0] if result else None
-
-    async def get_overdue_tasks_for_daily_notification(self):
-        """Получает просроченные задачи для ежедневного уведомления"""
-        async with aiosqlite.connect(self.db_path) as conn:
-            cursor = await conn.execute(
-                """
-                SELECT 
-                    t.id, t.user_id, t.content, t.due_date, t.priority,
-                    t.last_overdue_notification,
-                    rs.enable_overdue_reminders,
-                    u.first_name
-                FROM tasks t
-                JOIN users u ON t.user_id = u.id
-                LEFT JOIN reminder_settings rs ON t.user_id = rs.user_id
-                WHERE t.status = 'pending' 
-                AND t.is_deleted = 0
-                AND t.due_date IS NOT NULL
-                AND t.due_date < datetime('now')
-                AND (rs.enable_overdue_reminders = 1 OR rs.enable_overdue_reminders IS NULL)
-                AND (
-                    t.last_overdue_notification IS NULL 
-                    OR date(t.last_overdue_notification) < date('now')
-                )
-                ORDER BY t.due_date ASC
-            """
-            )
-            return await cursor.fetchall()
 
     async def update_reminder_settings_with_time(self, user_id: int, **settings):
         """Обновляет настройки напоминаний с временем уведомлений"""
@@ -1087,229 +923,6 @@ class Database:
                 values,
             )
             await conn.commit()
-
-    async def get_task_statistics_custom(
-        self, user_id: int, days: int = 30, start_date: str = None, end_date: str = None
-    ):
-        """Получает расширенную статистику задач за указанный период"""
-        async with aiosqlite.connect(self.db_path) as db:
-
-            if start_date and end_date:
-                date_condition = "AND date(created_at) BETWEEN ? AND ?"
-                date_params = [start_date, end_date]
-                period_info = f"с {start_date} по {end_date}"
-            else:
-                date_condition = "AND created_at >= date('now', ?)"
-                date_params = [f"-{days} days"]
-                period_info = f"за последние {days} дней"
-
-            base_query = f"""
-                SELECT 
-                    status, 
-                    COUNT(*) as count,
-                    ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM tasks 
-                        WHERE user_id = ? {date_condition} AND is_deleted = 0), 1) as percentage
-                FROM tasks 
-                WHERE user_id = ? {date_condition} AND is_deleted = 0
-                GROUP BY status
-                ORDER BY count DESC
-            """
-
-            query_params = [user_id] + date_params + [user_id] + date_params
-
-            cursor = await db.execute(base_query, query_params)
-            status_stats = await cursor.fetchall()
-
-            priority_query = f"""
-                SELECT 
-                    priority, 
-                    COUNT(*) as count,
-                    ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM tasks 
-                        WHERE user_id = ? {date_condition} AND is_deleted = 0), 1) as percentage
-                FROM tasks 
-                WHERE user_id = ? {date_condition} AND is_deleted = 0
-                GROUP BY priority
-                ORDER BY 
-                    CASE priority
-                        WHEN 'high' THEN 1
-                        WHEN 'medium' THEN 2
-                        WHEN 'low' THEN 3
-                        ELSE 4
-                    END
-            """
-
-            cursor = await db.execute(priority_query, query_params)
-            priority_stats = await cursor.fetchall()
-
-            if start_date and end_date:
-                daily_condition = "AND date(completed_at) BETWEEN ? AND ?"
-                daily_params = [user_id, start_date, end_date]
-            else:
-                daily_condition = "AND completed_at >= date('now', ?)"
-                daily_params = [user_id, f"-{days} days"]
-
-            cursor = await db.execute(
-                f"""
-                SELECT 
-                    date(completed_at) as completion_date,
-                    COUNT(*) as completed_count
-                FROM tasks 
-                WHERE user_id = ? 
-                    AND status = 'completed'
-                    {daily_condition}
-                    AND is_deleted = 0
-                GROUP BY date(completed_at)
-                ORDER BY completion_date DESC
-                LIMIT 14
-                """,
-                daily_params,
-            )
-            daily_completion = await cursor.fetchall()
-
-            if start_date and end_date:
-                overdue_condition = "AND date(created_at) BETWEEN ? AND ?"
-                overdue_params = [user_id, start_date, end_date]
-            else:
-                overdue_condition = "AND created_at >= date('now', ?)"
-                overdue_params = [user_id, f"-{days} days"]
-
-            cursor = await db.execute(
-                f"""
-                SELECT 
-                    COUNT(*) as overdue_count
-                FROM tasks 
-                WHERE user_id = ? 
-                    AND status = 'pending'
-                    AND due_date IS NOT NULL
-                    AND due_date < datetime('now')
-                    {overdue_condition}
-                    AND is_deleted = 0
-                """,
-                overdue_params,
-            )
-            overdue_count = (await cursor.fetchone())[0]
-
-            cursor = await db.execute(
-                f"""
-                SELECT 
-                    ROUND(AVG(JULIANDAY(completed_at) - JULIANDAY(created_at)), 2) as avg_completion_days
-                FROM tasks 
-                WHERE user_id = ? 
-                    AND status = 'completed'
-                    AND completed_at IS NOT NULL
-                    {overdue_condition}
-                    AND is_deleted = 0
-                """,
-                overdue_params,
-            )
-            avg_completion_time = (await cursor.fetchone())[0]
-
-            return {
-                "status_distribution": status_stats,
-                "priority_distribution": priority_stats,
-                "daily_completion": daily_completion,
-                "overdue_count": overdue_count,
-                "avg_completion_days": avg_completion_time or 0,
-                "period_info": period_info,
-            }
-
-    async def get_mood_statistics_custom(
-        self, user_id: int, days: int = 30, start_date: str = None, end_date: str = None
-    ):
-        """Получает расширенную статистику настроений за указанный период"""
-        async with aiosqlite.connect(self.db_path) as db:
-
-            if start_date and end_date:
-                date_condition = "AND date BETWEEN ? AND ?"
-                date_params = [start_date, end_date]
-            else:
-                date_condition = "AND date >= date('now', ?)"
-                date_params = [f"-{days} days"]
-
-            cursor = await db.execute(
-                f"""
-                SELECT 
-                    mood, 
-                    COUNT(*) as count,
-                    ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM moods WHERE user_id = ? {date_condition}), 1) as percentage
-                FROM moods 
-                WHERE user_id = ? {date_condition}
-                GROUP BY mood
-                ORDER BY count DESC
-                """,
-                [user_id] + date_params + [user_id] + date_params,
-            )
-            mood_distribution = await cursor.fetchall()
-
-            cursor = await db.execute(
-                f"""
-                SELECT 
-                    mood, 
-                    notes,
-                    date
-                FROM moods 
-                WHERE user_id = ? {date_condition}
-                ORDER BY date DESC
-                LIMIT 10
-                """,
-                [user_id] + date_params,
-            )
-            recent_moods = await cursor.fetchall()
-            cursor = await db.execute(
-                f"""
-                SELECT 
-                    mood,
-                    COUNT(*) as count
-                FROM moods 
-                WHERE user_id = ? {date_condition}
-                GROUP BY mood
-                ORDER BY count DESC
-                LIMIT 1
-                """,
-                [user_id] + date_params,
-            )
-            most_common_mood = await cursor.fetchone()
-
-            cursor = await db.execute(
-                f"""
-                SELECT 
-                    CASE strftime('%w', date)
-                        WHEN '0' THEN 'Воскресенье'
-                        WHEN '1' THEN 'Понедельник'
-                        WHEN '2' THEN 'Вторник'
-                        WHEN '3' THEN 'Среда'
-                        WHEN '4' THEN 'Четверг'
-                        WHEN '5' THEN 'Пятница'
-                        WHEN '6' THEN 'Суббота'
-                    END as day_of_week,
-                    mood,
-                    COUNT(*) as count
-                FROM moods 
-                WHERE user_id = ? {date_condition}
-                GROUP BY day_of_week, mood
-                ORDER BY 
-                    CASE strftime('%w', date)
-                        WHEN '1' THEN 1
-                        WHEN '2' THEN 2
-                        WHEN '3' THEN 3
-                        WHEN '4' THEN 4
-                        WHEN '5' THEN 5
-                        WHEN '6' THEN 6
-                        WHEN '0' THEN 7
-                    END,
-                    count DESC
-                """,
-                [user_id] + date_params,
-            )
-            mood_by_weekday = await cursor.fetchall()
-
-            return {
-                "mood_distribution": mood_distribution,
-                "recent_moods": recent_moods,
-                "most_common_mood": most_common_mood,
-                "mood_by_weekday": mood_by_weekday,
-                "period_days": days,
-            }
 
     async def get_filtered_tasks(self, user_id: int, filters: dict) -> list:
         """Получает задачи по фильтрам через SQL"""
@@ -1460,7 +1073,6 @@ class Database:
         """Получает просроченные задачи - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
         async with aiosqlite.connect(self.db_path) as db:
             try:
-                # Получаем текущее время для сравнения
                 now = datetime.now().isoformat()
 
                 cursor = await db.execute(
@@ -1501,6 +1113,174 @@ class Database:
                 (user_id, now.isoformat(), period_end.isoformat()),
             )
             return await cursor.fetchall()
+
+    async def get_tasks_for_deadline_reminders(self):
+        """Получает задачи для создания напоминаний о дедлайнах"""
+        async with aiosqlite.connect(self.db_path) as conn:
+            cursor = await conn.execute(
+                """
+                SELECT 
+                    t.id, t.user_id, t.due_date, 
+                    COALESCE(rs.reminder_before_hours, 1) as reminder_hours
+                FROM tasks t
+                LEFT JOIN reminder_settings rs ON t.user_id = rs.user_id
+                WHERE t.status = 'pending'
+                AND t.is_deleted = 0
+                AND t.due_date IS NOT NULL
+                AND t.due_date > datetime('now')
+                AND NOT EXISTS (
+                    SELECT 1 FROM task_reminders tr 
+                    WHERE tr.task_id = t.id 
+                    AND tr.reminder_type = 'deadline'
+                )
+                AND (rs.enable_reminders = 1 OR rs.enable_reminders IS NULL)
+                """
+            )
+            return await cursor.fetchall()
+
+    async def get_overdue_tasks_for_debug(self):
+        """Получает просроченные задачи для диагностики"""
+        async with aiosqlite.connect(self.db_path) as conn:
+            cursor = await conn.execute(
+                """
+                SELECT 
+                    t.id, t.user_id, t.due_date, t.status, t.is_deleted,
+                    rs.enable_overdue_reminders,
+                    EXISTS (
+                        SELECT 1 FROM task_reminders tr 
+                        WHERE tr.task_id = t.id 
+                        AND tr.reminder_type = 'overdue_immediate'
+                    ) as has_reminder
+                FROM tasks t
+                LEFT JOIN reminder_settings rs ON t.user_id = rs.user_id
+                WHERE t.status = 'pending'
+                AND t.is_deleted = 0
+                AND t.due_date IS NOT NULL
+                AND t.due_date < datetime('now')
+                ORDER BY t.due_date DESC
+                LIMIT 10
+                """
+            )
+            return await cursor.fetchall()
+
+    async def get_overdue_tasks_without_reminders(self):
+        """Получает просроченные задачи без напоминаний"""
+        async with aiosqlite.connect(self.db_path) as conn:
+            cursor = await conn.execute(
+                """
+                SELECT DISTINCT t.id, t.user_id, t.due_date
+                FROM tasks t
+                LEFT JOIN reminder_settings rs ON t.user_id = rs.user_id
+                WHERE t.status = 'pending'
+                AND t.is_deleted = 0
+                AND t.due_date IS NOT NULL
+                AND t.due_date < datetime('now')
+                AND NOT EXISTS (
+                    SELECT 1 FROM task_reminders tr 
+                    WHERE tr.task_id = t.id 
+                    AND tr.reminder_type = 'overdue_immediate'
+                )
+                AND (rs.enable_overdue_reminders = 1 OR rs.enable_overdue_reminders IS NULL)
+                """
+            )
+            return await cursor.fetchall()
+
+    async def get_database_local_time(self):
+        """Получает локальное время базы данных"""
+        async with aiosqlite.connect(self.db_path) as conn:
+            cursor = await conn.execute("SELECT datetime('now', 'localtime')")
+            return (await cursor.fetchone())[0]
+
+    async def get_new_overdue_tasks_for_reminders(self):
+        """Получает новые просроченные задачи для создания напоминаний"""
+        async with aiosqlite.connect(self.db_path) as conn:
+            cursor = await conn.execute(
+                """
+                SELECT DISTINCT
+                    t.id, t.user_id, t.content, t.due_date
+                FROM tasks t
+                LEFT JOIN reminder_settings rs ON t.user_id = rs.user_id
+                WHERE t.status = 'pending'
+                AND t.is_deleted = 0
+                AND t.due_date IS NOT NULL
+                AND datetime(t.due_date) < datetime('now', 'localtime')
+                AND NOT EXISTS (
+                    SELECT 1 FROM task_reminders tr 
+                    WHERE tr.task_id = t.id 
+                    AND tr.reminder_type = 'overdue_immediate'
+                )
+                AND (rs.enable_overdue_reminders = 1 OR rs.enable_overdue_reminders IS NULL)
+                """
+            )
+            return await cursor.fetchall()
+
+    async def get_users_for_daily_overdue_notifications(self):
+        """Получает пользователей и их настройки для ежедневных уведомлений"""
+        async with aiosqlite.connect(self.db_path) as conn:
+            cursor = await conn.execute(
+                """
+                SELECT 
+                    u.id, 
+                    COALESCE(rs.daily_overdue_time, '09:00') as notification_time,
+                    rs.enable_overdue_reminders
+                FROM users u
+                LEFT JOIN reminder_settings rs ON u.id = rs.user_id
+                WHERE rs.enable_overdue_reminders = 1 OR rs.enable_overdue_reminders IS NULL
+                """
+            )
+            return await cursor.fetchall()
+
+    async def get_overdue_tasks_for_user_daily(self, user_id: int):
+        """Получает просроченные задачи пользователя для ежедневного уведомления"""
+        async with aiosqlite.connect(self.db_path) as conn:
+            cursor = await conn.execute(
+                """
+                SELECT 
+                    t.id, t.user_id, t.content, t.due_date, t.priority,
+                    t.last_overdue_notification,
+                    rs.enable_overdue_reminders,
+                    u.first_name
+                FROM tasks t
+                JOIN users u ON t.user_id = u.id
+                LEFT JOIN reminder_settings rs ON t.user_id = rs.user_id
+                WHERE t.status = 'pending' 
+                AND t.is_deleted = 0
+                AND t.due_date IS NOT NULL
+                AND t.due_date < datetime('now')
+                AND (rs.enable_overdue_reminders = 1 OR rs.enable_overdue_reminders IS NULL)
+                AND (
+                    t.last_overdue_notification IS NULL 
+                    OR date(t.last_overdue_notification) < date('now')
+                )
+                AND t.user_id = ?
+                ORDER BY t.due_date ASC
+                """,
+                (user_id,),
+            )
+            return await cursor.fetchall()
+
+    async def delete_task_reminders(self, task_id: int, reminder_type: str = None):
+        """Удаляет напоминания для задачи"""
+        async with aiosqlite.connect(self.db_path) as db:
+            if reminder_type:
+                result = await db.execute(
+                    "DELETE FROM task_reminders WHERE task_id = ? AND reminder_type = ?",
+                    (task_id, reminder_type),
+                )
+                deleted_count = result.rowcount
+                print(
+                    f"🗑️ [DB] Удалены напоминания типа '{reminder_type}' для задачи #{task_id}: {deleted_count} шт."
+                )
+            else:
+                result = await db.execute(
+                    "DELETE FROM task_reminders WHERE task_id = ?", (task_id,)
+                )
+                deleted_count = result.rowcount
+                print(
+                    f"🗑️ [DB] Удалены все напоминания для задачи #{task_id}: {deleted_count} шт."
+                )
+            await db.commit()
+            return deleted_count
 
 
 db = Database()
