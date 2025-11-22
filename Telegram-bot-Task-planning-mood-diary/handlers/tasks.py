@@ -352,7 +352,7 @@ def format_due_date(due_date):
         now = datetime.now()
         is_overdue = due_datetime < now
 
-        if due_datetime.time() == time(23, 59) or due_datetime.hour == 23:
+        if due_datetime.time() == time(23, 59):
             if is_overdue:
                 return f"⚠️ ПРОСРОЧЕНА: \n📅 до {due_datetime.strftime('%d.%m.%Y')} (весь день)"
             else:
@@ -416,7 +416,7 @@ def describe_filters(filters: dict) -> str:
 async def format_and_send_tasks(
     message: Message, tasks: list, title: str = "📋 Ваши задачи"
 ):
-    """Простой и красивый формат задач"""
+    """Форматирует и отправляет задачи с разбивкой на несколько сообщений"""
     if not tasks:
         await message.answer(
             "🎉 <b>Пока нет задач!</b>\n\n"
@@ -426,47 +426,90 @@ async def format_and_send_tasks(
         )
         return
 
-    tasks_text = f"<b>{title}</b>\n\n"
+    chunk_size = 10
+    task_chunks = [tasks[i : i + chunk_size] for i in range(0, len(tasks), chunk_size)]
 
-    for i, task in enumerate(tasks, 1):
-        task_data = extract_task_data(task)
-        if not task_data:
-            continue
+    for chunk_index, task_chunk in enumerate(task_chunks):
+        if chunk_index == 0:
 
-        task_id, content, due_date, priority, status, is_deleted = task_data
-
-        task_tags = await db.get_task_tags(task_id)
-        tags_text = (
-            " ".join([f"<code>#{tag[1]}</code>" for tag in task_tags])
-            if task_tags
-            else ""
-        )
-
-        if status == "completed":
-            icon = "✅"
-            content = f"{content}"
-        elif is_deleted:
-            icon = "🗑️"
+            tasks_text = f"<b>{title}</b>\n\n"
         else:
-            icons = {"high": "🔴", "medium": "🟡", "low": "🟢"}
-            icon = icons.get(priority, "🟡")
 
-        tasks_text += f"{icon} <b>#{task_id}</b> - {content}\n"
+            tasks_text = f"<b>{title} (продолжение {chunk_index + 1})</b>\n\n"
 
-        if due_date:
-            due_text = format_due_date(due_date)
-            tasks_text += f"{due_text}\n"
+        for i, task in enumerate(task_chunk, 1):
+            task_data = extract_task_data(task)
+            if not task_data:
+                continue
 
-        if tags_text:
-            tasks_text += f"🏷️ {tags_text}\n"
+            task_id, content, due_date, priority, status, is_deleted = task_data
 
-        tasks_text += "\n"
+            task_tags = await db.get_task_tags(task_id)
+            tags_text = (
+                " ".join([f"<code>#{tag[1]}</code>" for tag in task_tags])
+                if task_tags
+                else ""
+            )
 
-    tasks_text += f"<i>Всего: {len(tasks)} задач</i>"
+            if status == "completed":
+                icon = "✅"
+                content = f"{content}"
+            elif is_deleted:
+                icon = "🗑️"
+            else:
+                icons = {"high": "🔴", "medium": "🟡", "low": "🟢"}
+                icon = icons.get(priority, "🟡")
 
-    await message.answer(
-        tasks_text, parse_mode="HTML", reply_markup=get_tasks_keyboard()
-    )
+            display_content = content
+            if len(display_content) > 50:
+                display_content = display_content[:47] + "..."
+
+            tasks_text += f"{icon} <b>#{task_id}</b> - {display_content}\n"
+
+            if due_date:
+                due_text = format_due_date(due_date)
+                tasks_text += f"{due_text}\n"
+
+            if tags_text:
+                tasks_text += f"🏷️ {tags_text}\n"
+
+            tasks_text += "\n"
+
+        if chunk_index == len(task_chunks) - 1:
+            tasks_text += f"<i>Всего: {len(tasks)} задач</i>"
+
+        if len(tasks_text) > 4000:
+            tasks_text = f"<b>{title}</b>\n\n"
+            for task in task_chunk:
+                task_data = extract_task_data(task)
+                if not task_data:
+                    continue
+                task_id, content, due_date, priority, status, is_deleted = task_data
+
+                icon = (
+                    "✅"
+                    if status == "completed"
+                    else (
+                        "🗑️"
+                        if is_deleted
+                        else {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(
+                            priority, "🟡"
+                        )
+                    )
+                )
+                display_content = content[:40] + "..." if len(content) > 40 else content
+                tasks_text += f"{icon} <b>#{task_id}</b> {display_content}\n"
+
+            if chunk_index == len(task_chunks) - 1:
+                tasks_text += f"\n<i>Всего: {len(tasks)} задач</i>"
+
+        await message.answer(
+            tasks_text,
+            parse_mode="HTML",
+            reply_markup=(
+                get_tasks_keyboard() if chunk_index == len(task_chunks) - 1 else None
+            ),
+        )
 
 
 async def show_all_tasks(message: Message):

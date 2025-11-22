@@ -605,14 +605,13 @@ async def analyze_tags_for_period_db(user_id: int, tasks: list, days: int) -> di
             total_tag_uses += len(task_tags)
 
             for tag in task_tags:
-                tag_id, tag_name, tag_color = tag
+                tag_id, tag_name = tag
 
                 if tag_name not in tags_stats:
                     tags_stats[tag_name] = {
                         "total": 0,
                         "completed": 0,
                         "pending": 0,
-                        "color": tag_color,
                     }
 
                 tags_stats[tag_name]["total"] += 1

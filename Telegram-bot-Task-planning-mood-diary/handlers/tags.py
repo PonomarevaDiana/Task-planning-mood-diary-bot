@@ -29,7 +29,6 @@ router = Router()
 
 class TagStates(StatesGroup):
     waiting_for_tag_name = State()
-    waiting_for_tag_color = State()
     waiting_for_tag_selection = State()
     waiting_for_task_for_tag = State()
 
@@ -91,7 +90,7 @@ async def cmd_tags(message: Message):
 
     tags_text = "🏷️ Ваши теги:\n\n"
     for tag in tags:
-        tag_id, name, color = tag
+        tag_id, name = tag
         tags_text += f"• {name}\n"
 
     await message.answer(tags_text, reply_markup=get_tags_keyboard())
