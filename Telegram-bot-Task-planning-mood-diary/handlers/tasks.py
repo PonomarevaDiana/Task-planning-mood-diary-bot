@@ -1,6 +1,6 @@
 from aiogram import Router, F
 import aiosqlite
-from aiogram.types import Message, ReplyKeyboardRemove
+from aiogram.types import Message
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -23,12 +23,9 @@ from keyboards import (
     get_priority_keyboard,
     get_filter_keyboard,
     get_edit_keyboard,
-    get_tags_keyboard,
     get_confirm_keyboard,
     get_back_keyboard,
     get_cancel_keyboard,
-    get_notifications_keyboard,
-    get_reminder_settings_keyboard,
     get_confirm_keyboard,
     get_cancel_keyboard,
     get_back_keyboard,
@@ -39,6 +36,11 @@ from keyboards import (
     get_grouping_period_keyboard,
     get_grouping_priority_keyboard,
     get_grouping_status_keyboard,
+    get_task_actions_keyboard,
+    get_actual_keyboard,
+    get_view_keyboard,
+    get_distributions_keyboard,
+    get_report_keyboard,
 )
 
 router = Router()
@@ -85,42 +87,9 @@ class TaskFilter(StatesGroup):
     waiting_for_confirmation = State()
 
 
-class TagStates(StatesGroup):
-    waiting_for_tag_name = State()
-    waiting_for_tag_color = State()
-    waiting_for_tag_selection = State()
-    waiting_for_task_for_tag = State()
-
-
-class NewTagStates(StatesGroup):
-    waiting_for_tag_name = State()
-
-
 class CleanupStates(StatesGroup):
     waiting_for_days = State()
     waiting_for_confirmation = State()
-
-
-class RemoveTagStates(StatesGroup):
-    waiting_for_tag_name = State()
-    waiting_for_confirmation = State()
-
-
-class DelTagStates(StatesGroup):
-    waiting_for_task_id = State()
-    waiting_for_tag_name = State()
-    waiting_for_confirmation = State()
-
-
-class ReminderSettings(StatesGroup):
-    waiting_for_settings_choice = State()
-    waiting_for_reminders_setting = State()
-    waiting_for_overdue_setting = State()
-    waiting_for_reminder_hours = State()
-
-
-class DailyReminderSettings(StatesGroup):
-    waiting_for_daily_time = State()
 
 
 class TaskFilter(StatesGroup):
@@ -133,17 +102,199 @@ class TaskFilter(StatesGroup):
     waiting_for_combined_next = State()
 
 
-class AddTagStates(StatesGroup):
-    waiting_for_task_id = State()
-    waiting_for_tag_name = State()
-    waiting_for_confirmation = State()
-    waiting_for_tag_creation = State()
-
-
 class TaskGrouping(StatesGroup):
     waiting_for_group_type = State()
     waiting_for_specific_choice = State()
     waiting_for_confirmation = State()
+
+
+@router.message(F.text == "📋 Задачи")
+@router.message(Command("tasks"))
+async def handle_tasks_main(message: Message):
+    """Главное меню задач"""
+    await message.answer(
+        "📋 Управление задачами\n\n" "Выберите действие:",
+        reply_markup=get_tasks_keyboard(),
+    )
+
+
+@router.message(F.text == "📝 Действия с задачами")
+async def cmd_quick_actions(message: Message, state: FSMContext):
+    await message.answer(
+        "📋 Действия с задачей\n\n" "Выберите действие:",
+        reply_markup=get_task_actions_keyboard(),
+    )
+
+
+@router.message(F.text == "📅 Актуальное")
+async def cmd_quick_actions(message: Message, state: FSMContext):
+    await message.answer(
+        "📅 Просмотр актуального\n\n" "Выберите действие:",
+        reply_markup=get_actual_keyboard(),
+    )
+
+
+@router.message(F.text == "📊 Просмотр задач")
+async def cmd_quick_actions(message: Message, state: FSMContext):
+    await message.answer(
+        "📊 Просмотр задач\n\n" "Выберите действие:",
+        reply_markup=get_view_keyboard(),
+    )
+
+
+@router.message(F.text == "🏷️ Анализ распределений")
+async def cmd_quick_actions(message: Message, state: FSMContext):
+    await message.answer(
+        "🏷️ Аналитика распределений\n\n" "Выберите действие:",
+        reply_markup=get_distributions_keyboard(),
+    )
+
+
+@router.message(F.text == "📋 Обзорные отчеты")
+async def cmd_quick_actions(message: Message, state: FSMContext):
+    await message.answer(
+        "📋 Просмотр отчета\n\n" "Выберите действие:",
+        reply_markup=get_report_keyboard(),
+    )
+
+
+@router.message(F.text == "📝 Новая задача")
+@router.message(Command("plan"))
+async def cmd_plan(message: Message, state: FSMContext):
+    """Начать создание новой задачи"""
+    await message.answer("📝 Опишите вашу задачу:", reply_markup=get_cancel_keyboard())
+    await state.set_state(TaskCreation.waiting_for_content)
+
+
+@router.message(F.text == "📋 Список задач")
+async def handle_show_tasks(message: Message):
+    """Показать все активные задачи"""
+    await show_all_tasks(message)
+
+
+@router.message(F.text == "🚨 Срочные задачи")
+@router.message(Command("urgent"))
+async def cmd_urgent(message: Message):
+    """Показать срочные задачи"""
+    await show_urgent_tasks(message)
+
+
+@router.message(F.text == "⏰ Ближайшие задачи")
+@router.message(Command("upcoming"))
+async def cmd_upcoming(message: Message):
+    """Показать ближайшие задачи"""
+    await show_upcoming_tasks(message)
+
+
+@router.message(F.text == "⚠️ Просроченные")
+@router.message(Command("overdue"))
+async def cmd_overdue(message: Message):
+    """Показать просроченные задачи"""
+    await show_overdue_tasks(message)
+
+
+@router.message(F.text == "📅 Задачи на сегодня")
+async def handle_today_tasks(message: Message):
+    """Показать задачи на сегодня"""
+    await show_today_tasks(message)
+
+
+@router.message(F.text == "✅ Завершить задачу")
+@router.message(Command("complete"))
+async def cmd_complete(message: Message, state: FSMContext):
+    """Начать процесс завершения задачи"""
+    await message.answer(
+        "✅ Завершение задачи\n\n"
+        "Введите ID задачи для завершения:\n"
+        "(ID можно посмотреть в списке задач)",
+        reply_markup=get_back_keyboard(),
+    )
+    await state.set_state(TaskComplete.waiting_for_task_id)
+
+
+@router.message(F.text == "🗑️ Удалить задачу")
+@router.message(Command("delete"))
+async def cmd_delete(message: Message, state: FSMContext):
+    """Начать процесс удаления задачи"""
+    await message.answer(
+        "🗑️ Удаление задачи\n\n" "Введите ID задачи для удаления:",
+        reply_markup=get_back_keyboard(),
+    )
+    await state.set_state(TaskDelete.waiting_for_task_id)
+
+
+@router.message(F.text == "🔄 Восстановить задачу")
+@router.message(Command("restore"))
+async def cmd_restore(message: Message, state: FSMContext):
+    """Начать процесс восстановления задачи"""
+    await message.answer(
+        "🔄 Восстановление задачи\n\n" "Введите ID задачи для восстановления:",
+        reply_markup=get_back_keyboard(),
+    )
+    await state.set_state(TaskRestore.waiting_for_task_id)
+
+
+@router.message(F.text == "✏️ Редактировать задачу")
+@router.message(Command("edit"))
+async def cmd_edit(message: Message, state: FSMContext):
+    """Начать процесс редактирования задачи"""
+    await message.answer(
+        "✏️ Редактирование задачи\n\n" "Введите ID задачи для редактирования:",
+        reply_markup=get_back_keyboard(),
+    )
+    await state.set_state(TaskEdit.waiting_for_task_id)
+
+
+@router.message(F.text == "🎯 Фильтры задач")
+async def handle_filters(message: Message, state: FSMContext):
+    """Показать меню фильтров"""
+    await show_filter_menu(message, state)
+
+
+async def show_filter_menu(message: Message, state: FSMContext):
+    """Показать меню фильтров"""
+    filter_menu = (
+        "🎯 Фильтрация задач\n\n"
+        "Выберите тип фильтра:\n\n"
+        "🎯 По приоритету\n"
+        "📊 По статусу\n"
+        "📅 По дате\n"
+        "🏷️ По тегу\n"
+        "🔄 Комбинированный\n"
+        "📋 Все активные\n\n"
+        "🔙 Назад к задачам"
+    )
+
+    await message.answer(filter_menu, reply_markup=get_filter_keyboard())
+    await state.set_state(TaskFilter.waiting_for_filter_choice)
+
+
+@router.message(F.text == "🔄 Комбинированный")
+async def handle_combined_filter(message: Message, state: FSMContext):
+    """Начать комбинированную фильтрацию"""
+    await state.update_data(current_filters={}, filter_type="combined", combined_step=0)
+    await continue_combined_filter(message, state, {})
+
+
+@router.message(F.text == "📊 Группировка задач")
+@router.message(Command("group"))
+async def cmd_group(message: Message, state: FSMContext):
+    """Меню группировки задач"""
+    group_menu = (
+        "📊 <b>ГРУППИРОВКА ЗАДАЧ</b>\n\n"
+        "🎯 <b>Сгруппируйте задачи для лучшего обзора:</b>\n\n"
+        "🏷️  <b>По тегам</b> - группировка тегам\n"
+        "🎯 <b>По приоритетам</b> - по уровню важности и срочности\n"
+        "📅 <b>По датам</b> - хронологический порядок выполнения\n"
+        "📊 <b>По статусу</b> - активные, выполненные, удаленные\n"
+        "🔄 <b>Комбинированная</b> - несколько критериев сразу\n"
+        "📋 <b>Все задачи</b> - полный обзор без группировки\n\n"
+    )
+
+    await message.answer(
+        group_menu, parse_mode="HTML", reply_markup=get_grouping_keyboard()
+    )
+    await state.set_state(TaskGrouping.waiting_for_group_type)
 
 
 def extract_task_data(task):
@@ -219,6 +370,49 @@ def format_due_date(due_date):
         return "⏳ без срока"
 
 
+def describe_filters(filters: dict) -> str:
+    """Описание примененных фильтров"""
+    if not filters:
+        return "все задачи"
+
+    descriptions = []
+
+    priority_names = {
+        "high": "🔴 высокий приоритет",
+        "medium": "🟡 средний приоритет",
+        "low": "🟢 низкий приоритет",
+    }
+
+    status_names = {
+        "pending": "активные",
+        "completed": "✅ выполненные",
+        "deleted": "🗑️ удаленные",
+    }
+
+    date_names = {
+        "today": "📅 сегодня",
+        "tomorrow": "📅 завтра",
+        "week": "📅 неделя",
+        "overdue": "⚠️ просроченные",
+    }
+
+    if "priority" in filters:
+        descriptions.append(
+            priority_names.get(filters["priority"], filters["priority"])
+        )
+
+    if "status" in filters:
+        descriptions.append(status_names.get(filters["status"], filters["status"]))
+
+    if "tag" in filters:
+        descriptions.append(f"🏷️ #{filters['tag']}")
+
+    if "date" in filters:
+        descriptions.append(date_names.get(filters["date"], filters["date"]))
+
+    return ", ".join(descriptions) if descriptions else "все задачи"
+
+
 async def format_and_send_tasks(
     message: Message, tasks: list, title: str = "📋 Ваши задачи"
 ):
@@ -275,47 +469,103 @@ async def format_and_send_tasks(
     )
 
 
-def describe_filters(filters: dict) -> str:
-    """Описание примененных фильтров"""
-    if not filters:
-        return "все задачи"
+async def show_all_tasks(message: Message):
+    """Показать все активные задачи"""
+    tasks = await db.get_user_tasks_with_priority(message.from_user.id, "pending")
 
-    descriptions = []
+    if not tasks:
+        await message.answer(
+            "🎉 У вас нет активных задач!", reply_markup=get_tasks_keyboard()
+        )
+        return
 
-    priority_names = {
-        "high": "🔴 высокий приоритет",
-        "medium": "🟡 средний приоритет",
-        "low": "🟢 низкий приоритет",
-    }
+    await format_and_send_tasks(message, tasks, "📋 Ваши активные задачи")
 
-    status_names = {
-        "pending": "активные",
-        "completed": "✅ выполненные",
-        "deleted": "🗑️ удаленные",
-    }
 
-    date_names = {
-        "today": "📅 сегодня",
-        "tomorrow": "📅 завтра",
-        "week": "📅 неделя",
-        "overdue": "⚠️ просроченные",
-    }
+async def show_urgent_tasks(message: Message):
+    """Показать срочные задачи"""
+    try:
+        user_id = message.from_user.id
 
-    if "priority" in filters:
-        descriptions.append(
-            priority_names.get(filters["priority"], filters["priority"])
+        urgent_tasks = await db.get_urgent_tasks(user_id)
+
+        if not urgent_tasks:
+            await message.answer(
+                "🎉 Нет срочных задач!", reply_markup=get_tasks_keyboard()
+            )
+            return
+
+        await format_and_send_tasks(message, urgent_tasks, "🚨 Срочные задачи")
+
+    except Exception as e:
+        await message.answer(
+            f"❌ Ошибка при получении срочных задач: {e}",
+            reply_markup=get_tasks_keyboard(),
         )
 
-    if "status" in filters:
-        descriptions.append(status_names.get(filters["status"], filters["status"]))
 
-    if "tag" in filters:
-        descriptions.append(f"🏷️ #{filters['tag']}")
+async def show_upcoming_tasks(message: Message):
+    """Показать ближайшие задачи"""
+    try:
+        user_id = message.from_user.id
 
-    if "date" in filters:
-        descriptions.append(date_names.get(filters["date"], filters["date"]))
+        tasks = await db.get_upcoming_tasks(user_id, days=7)
 
-    return ", ".join(descriptions) if descriptions else "все задачи"
+        if not tasks:
+            await message.answer(
+                "🎉 Нет ближайших задач!", reply_markup=get_tasks_keyboard()
+            )
+            return
+
+        await format_and_send_tasks(message, tasks, "⏰ Ближайшие задачи")
+
+    except Exception as e:
+        await message.answer(
+            f"❌ Ошибка при получении ближайших задач: {e}",
+            reply_markup=get_tasks_keyboard(),
+        )
+
+
+async def show_overdue_tasks(message: Message):
+    """Показать просроченные задачи"""
+    try:
+        user_id = message.from_user.id
+        overdue_tasks = await db.get_overdue_tasks(user_id)
+
+        if not overdue_tasks:
+            await message.answer(
+                "🎉 У вас нет просроченных задач!", reply_markup=get_tasks_keyboard()
+            )
+            return
+
+        await format_and_send_tasks(message, overdue_tasks, "⚠️ Просроченные задачи")
+
+    except Exception as e:
+        await message.answer(
+            f"❌ Ошибка при получении просроченных задач: {e}",
+            reply_markup=get_tasks_keyboard(),
+        )
+
+
+async def show_today_tasks(message: Message):
+    """Показать задачи на сегодня"""
+    try:
+        user_id = message.from_user.id
+        tasks = await db.get_today_tasks(user_id)
+
+        if not tasks:
+            await message.answer(
+                "🎉 На сегодня задач нет!", reply_markup=get_tasks_keyboard()
+            )
+            return
+
+        await format_and_send_tasks(message, tasks, "📅 Задачи на сегодня")
+
+    except Exception as e:
+        await message.answer(
+            f"❌ Ошибка при получении задач на сегодня: {e}",
+            reply_markup=get_tasks_keyboard(),
+        )
 
 
 async def count_filtered_tasks(user_id: int, filters: dict) -> int:
@@ -448,24 +698,6 @@ async def show_date_options(message: Message, state: FSMContext):
 
     await message.answer(date_menu, reply_markup=get_filter_date)
     await state.set_state(TaskFilter.waiting_for_date)
-
-
-@router.message(F.text == "📋 Задачи")
-@router.message(Command("tasks"))
-async def handle_tasks_main(message: Message):
-    """Главное меню задач"""
-    await message.answer(
-        "📋 Управление задачами\n\n" "Выберите действие:",
-        reply_markup=get_tasks_keyboard(),
-    )
-
-
-@router.message(F.text == "📝 Новая задача")
-@router.message(Command("plan"))
-async def cmd_plan(message: Message, state: FSMContext):
-    """Начать создание новой задачи"""
-    await message.answer("📝 Опишите вашу задачу:", reply_markup=get_cancel_keyboard())
-    await state.set_state(TaskCreation.waiting_for_content)
 
 
 @router.message(StateFilter(TaskCreation.waiting_for_content))
@@ -624,151 +856,6 @@ async def process_task_priority(message: Message, state: FSMContext):
     await state.clear()
 
 
-@router.message(F.text == "📋 Список задач")
-async def handle_show_tasks(message: Message):
-    """Показать все активные задачи"""
-    await show_all_tasks(message)
-
-
-async def show_all_tasks(message: Message):
-    """Показать все активные задачи"""
-    tasks = await db.get_user_tasks_with_priority(message.from_user.id, "pending")
-
-    if not tasks:
-        await message.answer(
-            "🎉 У вас нет активных задач!", reply_markup=get_tasks_keyboard()
-        )
-        return
-
-    await format_and_send_tasks(message, tasks, "📋 Ваши активные задачи")
-
-
-@router.message(F.text == "🚨 Срочные задачи")
-@router.message(Command("urgent"))
-async def cmd_urgent(message: Message):
-    """Показать срочные задачи"""
-    await show_urgent_tasks(message)
-
-
-async def show_urgent_tasks(message: Message):
-    """Показать срочные задачи"""
-    try:
-        user_id = message.from_user.id
-
-        urgent_tasks = await db.get_urgent_tasks(user_id)
-
-        if not urgent_tasks:
-            await message.answer(
-                "🎉 Нет срочных задач!", reply_markup=get_tasks_keyboard()
-            )
-            return
-
-        await format_and_send_tasks(message, urgent_tasks, "🚨 Срочные задачи")
-
-    except Exception as e:
-        await message.answer(
-            f"❌ Ошибка при получении срочных задач: {e}",
-            reply_markup=get_tasks_keyboard(),
-        )
-
-
-@router.message(F.text == "⏰ Ближайшие задачи")
-@router.message(Command("upcoming"))
-async def cmd_upcoming(message: Message):
-    """Показать ближайшие задачи"""
-    await show_upcoming_tasks(message)
-
-
-async def show_upcoming_tasks(message: Message):
-    """Показать ближайшие задачи"""
-    try:
-        user_id = message.from_user.id
-
-        tasks = await db.get_upcoming_tasks(user_id, days=7)
-
-        if not tasks:
-            await message.answer(
-                "🎉 Нет ближайших задач!", reply_markup=get_tasks_keyboard()
-            )
-            return
-
-        await format_and_send_tasks(message, tasks, "⏰ Ближайшие задачи")
-
-    except Exception as e:
-        await message.answer(
-            f"❌ Ошибка при получении ближайших задач: {e}",
-            reply_markup=get_tasks_keyboard(),
-        )
-
-
-@router.message(F.text == "⚠️ Просроченные")
-@router.message(Command("overdue"))
-async def cmd_overdue(message: Message):
-    """Показать просроченные задачи"""
-    await show_overdue_tasks(message)
-
-
-async def show_overdue_tasks(message: Message):
-    """Показать просроченные задачи"""
-    try:
-        user_id = message.from_user.id
-        overdue_tasks = await db.get_overdue_tasks(user_id)
-
-        if not overdue_tasks:
-            await message.answer(
-                "🎉 У вас нет просроченных задач!", reply_markup=get_tasks_keyboard()
-            )
-            return
-
-        await format_and_send_tasks(message, overdue_tasks, "⚠️ Просроченные задачи")
-
-    except Exception as e:
-        await message.answer(
-            f"❌ Ошибка при получении просроченных задач: {e}",
-            reply_markup=get_tasks_keyboard(),
-        )
-
-
-@router.message(F.text == "📅 Задачи на сегодня")
-async def handle_today_tasks(message: Message):
-    """Показать задачи на сегодня"""
-    await show_today_tasks(message)
-
-
-async def show_today_tasks(message: Message):
-    """Показать задачи на сегодня"""
-    try:
-        user_id = message.from_user.id
-        tasks = await db.get_today_tasks(user_id)
-
-        if not tasks:
-            await message.answer(
-                "🎉 На сегодня задач нет!", reply_markup=get_tasks_keyboard()
-            )
-            return
-
-        await format_and_send_tasks(message, tasks, "📅 Задачи на сегодня")
-
-    except Exception as e:
-        await message.answer(
-            f"❌ Ошибка при получении задач на сегодня: {e}",
-            reply_markup=get_tasks_keyboard(),
-        )
-
-
-@router.message(F.text == "✅ Завершить задачу")
-@router.message(Command("complete"))
-async def cmd_complete(message: Message, state: FSMContext):
-    """Начать процесс завершения задачи"""
-    await message.answer(
-        "✅ Завершение задачи\n\n"
-        "Введите ID задачи для завершения:\n"
-        "(ID можно посмотреть в списке задач)",
-        reply_markup=get_back_keyboard(),
-    )
-    await state.set_state(TaskComplete.waiting_for_task_id)
-
-
 @router.message(StateFilter(TaskComplete.waiting_for_task_id))
 async def process_complete_task_id_input(message: Message, state: FSMContext):
     """Обработка ввода ID задачи"""
@@ -913,17 +1000,6 @@ async def process_complete_confirmation(message: Message, state: FSMContext):
         await state.clear()
     else:
         await message.answer("❌ Пожалуйста, используйте кнопки для подтверждения:")
-
-
-@router.message(F.text == "🗑️ Удалить задачу")
-@router.message(Command("delete"))
-async def cmd_delete(message: Message, state: FSMContext):
-    """Начать процесс удаления задачи"""
-    await message.answer(
-        "🗑️ Удаление задачи\n\n" "Введите ID задачи для удаления:",
-        reply_markup=get_back_keyboard(),
-    )
-    await state.set_state(TaskDelete.waiting_for_task_id)
 
 
 @router.message(StateFilter(TaskDelete.waiting_for_task_id))
@@ -1083,17 +1159,6 @@ async def process_delete_confirmation(message: Message, state: FSMContext):
         await message.answer("❌ Пожалуйста, используйте кнопки для подтверждения:")
 
 
-@router.message(F.text == "🔄 Восстановить задачу")
-@router.message(Command("restore"))
-async def cmd_restore(message: Message, state: FSMContext):
-    """Начать процесс восстановления задачи"""
-    await message.answer(
-        "🔄 Восстановление задачи\n\n" "Введите ID задачи для восстановления:",
-        reply_markup=get_back_keyboard(),
-    )
-    await state.set_state(TaskRestore.waiting_for_task_id)
-
-
 @router.message(StateFilter(TaskRestore.waiting_for_task_id))
 async def process_restore_task_id_input(message: Message, state: FSMContext):
     """Обработка ввода ID задачи для восстановления"""
@@ -1200,17 +1265,6 @@ async def process_restore_confirmation(message: Message, state: FSMContext):
         await state.clear()
     else:
         await message.answer("❌ Пожалуйста, используйте кнопки для подтверждения:")
-
-
-@router.message(F.text == "✏️ Редактировать задачу")
-@router.message(Command("edit"))
-async def cmd_edit(message: Message, state: FSMContext):
-    """Начать процесс редактирования задачи"""
-    await message.answer(
-        "✏️ Редактирование задачи\n\n" "Введите ID задачи для редактирования:",
-        reply_markup=get_back_keyboard(),
-    )
-    await state.set_state(TaskEdit.waiting_for_task_id)
 
 
 @router.message(StateFilter(TaskEdit.waiting_for_task_id))
@@ -1496,30 +1550,6 @@ async def process_continue_edit(message: Message, state: FSMContext):
         await message.answer("❌ Пожалуйста, используйте кнопки для подтверждения:")
 
 
-@router.message(F.text == "🎯 Фильтры задач")
-async def handle_filters(message: Message, state: FSMContext):
-    """Показать меню фильтров"""
-    await show_filter_menu(message, state)
-
-
-async def show_filter_menu(message: Message, state: FSMContext):
-    """Показать меню фильтров"""
-    filter_menu = (
-        "🎯 Фильтрация задач\n\n"
-        "Выберите тип фильтра:\n\n"
-        "🎯 По приоритету\n"
-        "📊 По статусу\n"
-        "📅 По дате\n"
-        "🏷️ По тегу\n"
-        "🔄 Комбинированный\n"
-        "📋 Все активные\n\n"
-        "🔙 Назад к задачам"
-    )
-
-    await message.answer(filter_menu, reply_markup=get_filter_keyboard())
-    await state.set_state(TaskFilter.waiting_for_filter_choice)
-
-
 @router.message(StateFilter(TaskFilter.waiting_for_filter_choice))
 async def process_filter_choice(message: Message, state: FSMContext):
     """Обработка выбора типа фильтра"""
@@ -1719,13 +1749,6 @@ async def process_filter_tag(message: Message, state: FSMContext):
         await apply_single_filter(message, state, current_filters)
 
 
-@router.message(F.text == "🔄 Комбинированный")
-async def handle_combined_filter(message: Message, state: FSMContext):
-    """Начать комбинированную фильтрацию"""
-    await state.update_data(current_filters={}, filter_type="combined", combined_step=0)
-    await continue_combined_filter(message, state, {})
-
-
 async def continue_combined_filter(
     message: Message, state: FSMContext, current_filters: dict
 ):
@@ -1923,424 +1946,6 @@ async def show_date_options(message: Message, state: FSMContext):
     await state.set_state(TaskFilter.waiting_for_date)
 
 
-@router.message(F.text == "🏷️ Управление тегами")
-async def handle_tags_main(message: Message):
-    """Меню управления тегами"""
-    await message.answer(
-        "🏷️ Управление тегами\n\n" "Выберите действие:", reply_markup=get_tags_keyboard()
-    )
-
-
-@router.message(F.text == "🏷️ Создать тег")
-@router.message(Command("newtag"))
-async def cmd_new_tag(message: Message, state: FSMContext):
-    """Создание нового тега"""
-    await message.answer(
-        "🏷️ Создание нового тега\n\n" "Введите название тега:",
-        reply_markup=get_back_keyboard(),
-    )
-    await state.set_state(NewTagStates.waiting_for_tag_name)
-
-
-@router.message(StateFilter(NewTagStates.waiting_for_tag_name))
-async def process_new_tag_name(message: Message, state: FSMContext):
-    """Обработка названия нового тега"""
-    if await handle_navigation(message, state):
-        return
-    tag_name = message.text.strip()
-
-    if not tag_name:
-        await message.answer("❌ Название тега не может быть пустым! Попробуйте снова:")
-        return
-
-    try:
-        tag_id = await db.create_tag(message.from_user.id, tag_name)
-        await message.answer(
-            f"✅ Тег #{tag_name} создан!", reply_markup=get_tags_keyboard()
-        )
-        await state.clear()
-    except Exception as e:
-        await message.answer(
-            f"❌ Ошибка при создании тега: {e}", reply_markup=get_tags_keyboard()
-        )
-        await state.clear()
-
-
-@router.message(F.text == "📋 Список тегов")
-@router.message(Command("tags"))
-async def cmd_tags(message: Message):
-    """Показать все теги пользователя"""
-    tags = await db.get_user_tags(message.from_user.id)
-
-    if not tags:
-        await message.answer(
-            "🏷️ У вас пока нет тегов.\n\n"
-            "Создайте первый тег через меню управления тегами",
-            reply_markup=get_tags_keyboard(),
-        )
-        return
-
-    tags_text = "🏷️ Ваши теги:\n\n"
-    for tag in tags:
-        tag_id, name, color = tag
-        tags_text += f"• {name}\n"
-
-    await message.answer(tags_text, reply_markup=get_tags_keyboard())
-
-
-@router.message(F.text == "➖ Удалить с задачи")
-async def handle_remove_tag_from_task(message: Message, state: FSMContext):
-    """Начать процесс удаления тега с задачи"""
-    await message.answer(
-        "➖ Удаление тега с задачи\n\n" "Введите ID задачи:",
-        reply_markup=get_back_keyboard(),
-    )
-    await state.set_state(DelTagStates.waiting_for_task_id)
-
-
-@router.message(StateFilter(DelTagStates.waiting_for_task_id))
-async def process_remove_tag_task_id(message: Message, state: FSMContext):
-    """Обработка ID задачи для удаления тега"""
-    if await handle_navigation(message, state):
-        return
-
-    try:
-        task_id = int(message.text)
-        task = await db.get_task(task_id)
-
-        if not task or task[1] != message.from_user.id:
-            await message.answer(
-                "❌ Задача не найдена или не принадлежит вам!",
-                reply_markup=get_tags_keyboard(),
-            )
-            await state.clear()
-            return
-
-        task_tags = await db.get_task_tags(task_id)
-        if not task_tags:
-            await message.answer(
-                "❌ У этой задачи нет тегов!", reply_markup=get_tags_keyboard()
-            )
-            await state.clear()
-            return
-
-        tags_text = "🏷️ Теги задачи:\n" + "\n".join(
-            [f"• #{tag[1]}" for tag in task_tags]
-        )
-        await message.answer(
-            f"{tags_text}\n\nВведите название тега для удаления:",
-            reply_markup=get_back_keyboard(),
-        )
-        await state.update_data(deltag_task_id=task_id)
-        await state.set_state(DelTagStates.waiting_for_tag_name)
-
-    except ValueError:
-        await message.answer("❌ Неверный формат ID! Введите число:")
-
-
-@router.message(StateFilter(DelTagStates.waiting_for_tag_name))
-async def process_remove_tag_name(message: Message, state: FSMContext):
-    """Обработка названия тега для удаления"""
-    if await handle_navigation(message, state):
-        return
-
-    tag_name = message.text.strip()
-    if not tag_name:
-        await message.answer("❌ Название тега не может быть пустым! Попробуйте снова:")
-        return
-
-    data = await state.get_data()
-    task_id = data["deltag_task_id"]
-
-    task_tags = await db.get_task_tags(task_id)
-    tag_exists = any(tag[1].lower() == tag_name.lower() for tag in task_tags)
-
-    if not tag_exists:
-        await message.answer(
-            f"❌ Тег '#{tag_name}' не найден у этой задачи!\n\n"
-            f"Доступные теги:\n" + "\n".join([f"• #{tag[1]}" for tag in task_tags]),
-            reply_markup=get_back_keyboard(),
-        )
-        return
-
-    tag_id = None
-    for tag in task_tags:
-        if tag[1].lower() == tag_name.lower():
-            tag_id = tag[0]
-            break
-
-    if not tag_id:
-        await message.answer(
-            "❌ Ошибка при поиске тега!", reply_markup=get_tags_keyboard()
-        )
-        await state.clear()
-        return
-
-    await state.update_data(deltag_tag_id=tag_id, deltag_tag_name=tag_name)
-
-    task = await db.get_task(task_id)
-    task_content = task[2] if len(task) > 2 else "Неизвестная задача"
-
-    confirm_text = (
-        f"➖ Удалить тег с задачи?\n\n"
-        f"📝 Задача #{task_id}: {task_content}\n"
-        f"🏷️ Тег: #{tag_name}\n\n"
-        f"Подтвердите удаление:"
-    )
-
-    await message.answer(confirm_text, reply_markup=get_confirm_keyboard())
-    await state.set_state(DelTagStates.waiting_for_confirmation)
-
-
-@router.message(StateFilter(DelTagStates.waiting_for_confirmation))
-async def process_remove_tag_confirmation(message: Message, state: FSMContext):
-    """Обработка подтверждения удаления тега с задачи"""
-    if await handle_navigation(message, state):
-        return
-
-    answer = message.text.lower().strip()
-
-    if answer in ["✅ подтвердить", "да", "yes", "y", "д"]:
-        data = await state.get_data()
-        task_id = data["deltag_task_id"]
-        tag_id = data["deltag_tag_id"]
-        tag_name = data["deltag_tag_name"]
-
-        try:
-            await db.remove_tag_from_task(task_id, tag_id)
-            await message.answer(
-                f"✅ Тег '#{tag_name}' удален с задачи #{task_id}!",
-                reply_markup=get_tags_keyboard(),
-            )
-        except Exception as e:
-            await message.answer(
-                f"❌ Ошибка при удалении тега: {e}", reply_markup=get_tags_keyboard()
-            )
-
-        await state.clear()
-
-    elif answer in ["❌ отменить", "нет", "no", "n", "н"]:
-        await message.answer(
-            "❌ Удаление тега отменено", reply_markup=get_tags_keyboard()
-        )
-        await state.clear()
-    else:
-        await message.answer("❌ Пожалуйста, используйте кнопки для подтверждения:")
-
-
-@router.message(F.text == "🗑️ Удалить тег полностью")
-async def handle_delete_tag_completely(message: Message, state: FSMContext):
-    """Начать процесс полного удаления тега"""
-    user_tags = await db.get_user_tags(message.from_user.id)
-
-    if not user_tags:
-        await message.answer(
-            "🏷️ У вас пока нет тегов для удаления.", reply_markup=get_tags_keyboard()
-        )
-        return
-
-    tags_text = "🏷️ Ваши теги:\n" + "\n".join([f"• #{tag[1]}" for tag in user_tags])
-    await message.answer(
-        f"{tags_text}\n\nВведите название тега для полного удаления:",
-        reply_markup=get_back_keyboard(),
-    )
-    await state.set_state(RemoveTagStates.waiting_for_tag_name)
-
-
-@router.message(StateFilter(RemoveTagStates.waiting_for_tag_name))
-async def process_delete_tag_name(message: Message, state: FSMContext):
-    """Обработка названия тега для полного удаления"""
-    if await handle_navigation(message, state):
-        return
-
-    tag_name = message.text.strip()
-    if not tag_name:
-        await message.answer("❌ Название тега не может быть пустым! Попробуйте снова:")
-        return
-
-    user_tags = await db.get_user_tags(message.from_user.id)
-    tag_exists = any(tag[1].lower() == tag_name.lower() for tag in user_tags)
-
-    if not tag_exists:
-        tags_list = (
-            ", ".join([f"#{tag[1]}" for tag in user_tags]) if user_tags else "нет тегов"
-        )
-        await message.answer(
-            f"❌ Тег '#{tag_name}' не найден!\n\n"
-            f"Ваши теги: {tags_list}\n\n"
-            "Введите существующий тег:",
-            reply_markup=get_back_keyboard(),
-        )
-        return
-
-    tag_id = None
-    for tag in user_tags:
-        if tag[1].lower() == tag_name.lower():
-            tag_id = tag[0]
-            break
-
-    if not tag_id:
-        await message.answer(
-            "❌ Ошибка при поиске тега!", reply_markup=get_tags_keyboard()
-        )
-        await state.clear()
-        return
-
-    tasks_with_tag = await db.get_tasks_by_tag(message.from_user.id, tag_name)
-
-    await state.update_data(
-        remove_tag_id=tag_id, remove_tag_name=tag_name, tasks_count=len(tasks_with_tag)
-    )
-
-    confirm_text = (
-        f"🗑️ Полное удаление тега\n\n"
-        f"🏷️ Тег: #{tag_name}\n"
-        f"📊 Используется в {len(tasks_with_tag)} задачах\n\n"
-        f"⚠️ Внимание: Тег будет полностью удален из системы!\n"
-        f"Он пропадет из всех задач, где используется.\n\n"
-        f"Подтвердите удаление:"
-    )
-
-    await message.answer(confirm_text, reply_markup=get_confirm_keyboard())
-    await state.set_state(RemoveTagStates.waiting_for_confirmation)
-
-
-@router.message(StateFilter(RemoveTagStates.waiting_for_confirmation))
-async def process_delete_tag_confirmation(message: Message, state: FSMContext):
-    """Обработка подтверждения полного удаления тега"""
-    if await handle_navigation(message, state):
-        return
-
-    answer = message.text.lower().strip()
-
-    if answer in ["✅ подтвердить", "да", "yes", "y", "д"]:
-        data = await state.get_data()
-        tag_id = data["remove_tag_id"]
-        tag_name = data["remove_tag_name"]
-        tasks_count = data["tasks_count"]
-
-        try:
-            await db.delete_tag(tag_id)
-
-            result_text = f"✅ Тег '#{tag_name}' полностью удален!"
-            if tasks_count > 0:
-                result_text += f"\n🗑️ Удален из {tasks_count} задач"
-
-            await message.answer(result_text, reply_markup=get_tags_keyboard())
-
-        except Exception as e:
-            await message.answer(
-                f"❌ Ошибка при удалении тега: {e}", reply_markup=get_tags_keyboard()
-            )
-
-        await state.clear()
-
-    elif answer in ["❌ отменить", "нет", "no", "n", "н"]:
-        await message.answer(
-            "❌ Удаление тега отменено", reply_markup=get_tags_keyboard()
-        )
-        await state.clear()
-    else:
-        await message.answer("❌ Пожалуйста, используйте кнопки для подтверждения:")
-
-
-async def handle_tag_navigation(message: Message, state: FSMContext):
-    """Обработка навигации в меню тегов"""
-    if message.text == "🔙 Назад":
-        await handle_tags_main(message)
-        await state.clear()
-        return True
-    elif message.text == "🔙 Назад к задачам":
-        await handle_tasks_main(message)
-        await state.clear()
-        return True
-    elif message.text == "❌ Отмена":
-        await handle_tags_main(message)
-        await state.clear()
-        return True
-    return False
-
-
-@router.message(StateFilter(NewTagStates.waiting_for_tag_name))
-async def process_new_tag_name(message: Message, state: FSMContext):
-    """Обработка названия нового тега"""
-    if await handle_tag_navigation(message, state):
-        return
-
-    tag_name = message.text.strip()
-
-    if not tag_name:
-        await message.answer("❌ Название тега не может быть пустым! Попробуйте снова:")
-        return
-
-    try:
-        tag_id = await db.create_tag(message.from_user.id, tag_name)
-        await message.answer(
-            f"✅ Тег '{tag_name}' создан!", reply_markup=get_tags_keyboard()
-        )
-        await state.clear()
-    except Exception as e:
-        await message.answer(
-            f"❌ Ошибка при создании тега: {e}", reply_markup=get_tags_keyboard()
-        )
-        await state.clear()
-
-
-@router.message(StateFilter(AddTagStates.waiting_for_task_id))
-async def process_addtag_task_id(message: Message, state: FSMContext):
-    """Обработка ID задачи для добавления тега"""
-    if await handle_tag_navigation(message, state):
-        return
-
-    try:
-        task_id = int(message.text)
-        await state.update_data(addtag_task_id=task_id)
-
-        task = await db.get_task(task_id)
-        if not task or task[1] != message.from_user.id:
-            await message.answer(
-                "❌ Задача не найдена или не принадлежит вам!",
-                reply_markup=get_tags_keyboard(),
-            )
-            await state.clear()
-            return
-
-        await message.answer(
-            f"➕ Добавление тега к задаче #{task_id}\n\n" "Введите название тега:",
-            reply_markup=get_back_keyboard(),
-        )
-        await state.set_state(AddTagStates.waiting_for_tag_name)
-
-    except ValueError:
-        await message.answer(
-            "❌ Неверный формат ID! Введите число:", reply_markup=get_back_keyboard()
-        )
-
-
-@router.message(F.text == "🔙 Назад")
-async def handle_back(message: Message, state: FSMContext):
-    """Обработка кнопки Назад"""
-    current_state = await state.get_state()
-
-    if current_state:
-        await handle_tasks_main(message)
-        await state.clear()
-    else:
-        await message.answer("🏠 Главное меню", reply_markup=get_main_keyboard())
-
-
-@router.message(F.text == "🔙 Назад к задачам")
-async def handle_back_to_tasks(message: Message):
-    """Вернуться к меню задач"""
-    await handle_tasks_main(message)
-
-
-@router.message(F.text == "🔙 Назад в меню")
-async def handle_back_to_main(message: Message):
-    """Вернуться в главное меню"""
-    await message.answer("🏠 Главное меню", reply_markup=get_main_keyboard())
-
-
 @router.message(Command("cleanup"))
 async def cmd_cleanup(message: Message):
     """Очистка старых данных"""
@@ -2364,149 +1969,6 @@ async def cmd_storage(message: Message):
         "/storage_info - статистика хранилища"
     )
     await message.answer(storage_info, reply_markup=get_tasks_keyboard())
-
-
-@router.message(F.text == "➕ Добавить к задаче")
-@router.message(Command("addtag"))
-async def cmd_add_tag(message: Message, state: FSMContext):
-    """Начать процесс добавления тега к задаче"""
-    await message.answer(
-        "➕ Добавление тега к задаче\n\n" "Введите ID задачи:",
-        reply_markup=get_back_keyboard(),
-    )
-    await state.set_state(AddTagStates.waiting_for_task_id)
-
-
-@router.message(StateFilter(AddTagStates.waiting_for_task_id))
-async def process_addtag_task_id(message: Message, state: FSMContext):
-    """Обработка ID задачи для добавления тега"""
-
-    try:
-        task_id = int(message.text)
-        await state.update_data(addtag_task_id=task_id)
-
-        task = await db.get_task(task_id)
-        if not task or task[1] != message.from_user.id:
-            await message.answer(
-                "❌ Задача не найдена или не принадлежит вам!",
-                reply_markup=get_tags_keyboard(),
-            )
-            await state.clear()
-            return
-
-        await message.answer(
-            f"➕ Добавление тега к задаче #{task_id}\n\n" "Введите название тега:",
-            reply_markup=get_back_keyboard(),
-        )
-        await state.set_state(AddTagStates.waiting_for_tag_name)
-
-    except ValueError:
-        await message.answer(
-            "❌ Неверный формат ID! Введите число:", reply_markup=get_back_keyboard()
-        )
-
-
-@router.message(StateFilter(AddTagStates.waiting_for_tag_name))
-async def process_addtag_tag_name(message: Message, state: FSMContext):
-    """Обработка названия тега"""
-    if await handle_navigation(message, state):
-        return
-    tag_name = message.text.strip()
-
-    if not tag_name:
-        await message.answer(
-            "❌ Название тега не может быть пустым! Попробуйте снова:",
-            reply_markup=get_back_keyboard(),
-        )
-        return
-
-    data = await state.get_data()
-    task_id = data["addtag_task_id"]
-    await process_add_tag_complete(message, state, task_id, tag_name)
-
-
-async def process_add_tag_complete(
-    message: Message, state: FSMContext, task_id: int, tag_name: str
-):
-    """Завершение процесса добавления тега"""
-    try:
-        task = await db.get_task(task_id)
-        if not task or task[1] != message.from_user.id:
-            await message.answer("❌ Задача не найдена или не принадлежит вам!")
-            await state.clear()
-            return
-
-        tag_id = await db.create_tag(message.from_user.id, tag_name)
-
-        if not tag_id:
-            await message.answer("❌ Ошибка при создании тега!")
-            await state.clear()
-            return
-
-        existing_tags = await db.get_task_tags(task_id)
-        if any(tag[1].lower() == tag_name.lower() for tag in existing_tags):
-            await message.answer(
-                f"✅ Тег '{tag_name}' уже добавлен к задаче #{task_id}!"
-            )
-            await state.clear()
-            return
-
-        task_content = task[2]
-        if len(task_content) > 40:
-            task_content = task_content[:40] + "..."
-
-        confirm_text = (
-            f"🏷️ Добавить тег к задаче?\n\n"
-            f"📝 Задача #{task_id}: {task_content}\n"
-            f"🏷️ Тег: #{tag_name}\n\n"
-            f"Подтвердите добавление (да/нет):"
-        )
-
-        await state.update_data(
-            addtag_task_id=task_id, addtag_tag_name=tag_name, addtag_tag_id=tag_id
-        )
-        await message.answer(confirm_text, reply_markup=get_confirm_keyboard())
-        await state.set_state(AddTagStates.waiting_for_confirmation)
-
-    except Exception as e:
-        await message.answer(f"❌ Ошибка при добавлении тега: {e}")
-        await state.clear()
-
-
-@router.message(StateFilter(AddTagStates.waiting_for_confirmation))
-async def process_addtag_confirmation(message: Message, state: FSMContext):
-    """Обработка подтверждения добавления тега"""
-    if await handle_navigation(message, state):
-        return
-    answer = message.text.lower().strip()
-
-    if answer in ["✅ подтвердить", "да", "yes", "y", "д"]:
-        data = await state.get_data()
-        task_id = data["addtag_task_id"]
-        tag_name = data["addtag_tag_name"]
-        tag_id = data["addtag_tag_id"]
-
-        await db.add_tag_to_task(task_id, tag_id)
-        await message.answer(
-            f"✅ Тег '{tag_name}' добавлен к задаче #{task_id}!",
-            reply_markup=get_tags_keyboard(),
-        )
-        await state.clear()
-
-    elif answer in ["❌ отменить", "нет", "no", "n", "н"]:
-        await message.answer(
-            "❌ Добавление тега отменено", reply_markup=get_tags_keyboard()
-        )
-        await state.clear()
-    else:
-        await message.answer("❌ Пожалуйста, используйте кнопки для подтверждения:")
-
-
-@router.message(F.text == "🔄 Комбинированный")
-async def handle_combined_filter(message: Message, state: FSMContext):
-    """Начать комбинированную фильтрацию"""
-    await state.update_data(current_filters={}, filter_type="combined", combined_step=0)
-    await continue_combined_filter(message, state, {})
 
 
 async def continue_combined_filter(
@@ -2569,297 +2031,6 @@ async def handle_upcoming_keywords(message: Message):
 async def handle_overdue_keywords(message: Message):
     """Обработка ключевых слов для просроченных задач"""
     await cmd_overdue(message)
-
-
-@router.message(F.text == "🔔 Уведомления")
-async def handle_notifications_button(message: Message):
-    """Обработка кнопки уведомлений из главного меню"""
-    await cmd_reminders(message)
-
-
-@router.message(Command("reminders"))
-async def cmd_reminders(message: Message, state: FSMContext = None):
-    """Меню управления напоминаниями с клавиатурой"""
-    settings = await db.get_reminder_settings(message.from_user.id)
-
-    settings_text = (
-        "🔔 <b>Управление напоминаниями</b>\n\n"
-        f"✅ Напоминания о дедлайнах: {'ВКЛ' if settings[1] else 'ВЫКЛ'}\n"
-        f"⏰ Часов до дедлайна: {settings[2]}\n"
-        f"⚠️ Напоминания о просрочке: {'ВКЛ' if settings[3] else 'ВЫКЛ'}\n\n"
-        "Выберите действие:"
-    )
-
-    await message.answer(
-        settings_text, parse_mode="HTML", reply_markup=get_notifications_keyboard()
-    )
-
-
-@router.message(F.text == "🔔 Настройка напоминаний")
-async def handle_reminder_settings_button(message: Message, state: FSMContext):
-    """Обработка кнопки настройки напоминаний"""
-    settings = await db.get_reminder_settings(message.from_user.id)
-
-    settings_text = (
-        "🔔 <b>Настройка напоминаний</b>\n\n"
-        f"Текущий статус:\n"
-        f"• Напоминания: {'✅ ВКЛ' if settings[1] else '🔇 ВЫКЛ'}\n"
-        f"• Просрочка: {'⚠️ ВКЛ' if settings[3] else '🔕 ВЫКЛ'}\n"
-        f"• Часов до дедлайна: {settings[2]}\n\n"
-        "Выберите настройку для изменения:"
-    )
-
-    await message.answer(
-        settings_text, parse_mode="HTML", reply_markup=get_reminder_settings_keyboard()
-    )
-    await state.set_state(ReminderSettings.waiting_for_settings_choice)
-
-
-@router.message(F.text == "⏰ Время уведомлений")
-async def handle_notification_time_button(message: Message, state: FSMContext):
-    """Обработка кнопки настройки времени уведомлений"""
-    settings = await db.get_reminder_settings(message.from_user.id)
-    daily_time = settings[4] if len(settings) > 4 else "09:00"
-
-    await message.answer(
-        f"⏰ <b>Настройка времени ежедневных уведомлений</b>\n\n"
-        f"Текущее время: <b>{daily_time}</b>\n\n"
-        f"Введите новое время в формате ЧЧ:ММ (например, 09:00 или 18:30):\n\n"
-        f"💡 <i>Уведомления приходят раз в день в указанное время</i>",
-        parse_mode="HTML",
-        reply_markup=get_cancel_keyboard(),
-    )
-    await state.set_state(DailyReminderSettings.waiting_for_daily_time)
-
-
-@router.message(F.text == "📱 Типы уведомлений")
-async def handle_notification_types_button(message: Message):
-    """Обработка кнопки типов уведомлений"""
-    settings = await db.get_reminder_settings(message.from_user.id)
-
-    types_text = (
-        "📱 <b>Типы уведомлений</b>\n\n"
-        "Доступные типы напоминаний:\n\n"
-        "🔔 <b>Напоминания о дедлайнах</b>\n"
-        f"• Статус: {'✅ ВКЛ' if settings[1] else '🔇 ВЫКЛ'}\n"
-        f"• За сколько часов: {settings[2]} ч\n"
-        "• Присылаются перед сроком выполнения задачи\n\n"
-        "⚠️ <b>Напоминания о просрочке</b>\n"
-        f"• Статус: {'✅ ВКЛ' if settings[3] else '🔇 ВЫКЛ'}\n"
-        "• Присылаются для просроченных задач\n\n"
-        "🌅 <b>Ежедневные уведомления</b>\n"
-        "• Сводка по просроченным задачам\n"
-        "• Приходят один раз в день\n\n"
-        "⚙️ Для изменения настроек используйте кнопки ниже:"
-    )
-
-    await message.answer(
-        types_text, parse_mode="HTML", reply_markup=get_reminder_settings_keyboard()
-    )
-
-
-@router.message(F.text == "🔕 Отключить все")
-async def handle_disable_all_button(message: Message):
-    """Обработка кнопки отключения всех уведомлений"""
-    await db.update_reminder_settings(
-        message.from_user.id, enable_reminders=0, enable_overdue_reminders=0
-    )
-    await message.answer(
-        "🔇 <b>Все напоминания отключены!</b>\n\n"
-        "Вы больше не будете получать:\n"
-        "• Напоминания о дедлайнах\n"
-        "• Уведомления о просрочке\n"
-        "• Ежедневные сводки\n\n"
-        "Чтобы включить обратно, используйте кнопку '🔔 Включить все'",
-        parse_mode="HTML",
-        reply_markup=get_notifications_keyboard(),
-    )
-
-
-@router.message(F.text == "🔔 Включить все")
-async def handle_enable_all_button(message: Message):
-    """Обработка кнопки включения всех уведомлений"""
-    await db.update_reminder_settings(
-        message.from_user.id, enable_reminders=1, enable_overdue_reminders=1
-    )
-    await message.answer(
-        "✅ <b>Все напоминания включены!</b>\n\n"
-        "Теперь вы будете получать:\n"
-        "• Напоминания о дедлайнах\n"
-        "• Уведомления о просрочке\n"
-        "• Ежедневные сводки\n\n"
-        "Настройте параметры с помощью кнопок ниже:",
-        parse_mode="HTML",
-        reply_markup=get_notifications_keyboard(),
-    )
-
-
-@router.message(F.text == "📊 Статус уведомлений")
-async def handle_notification_status_button(message: Message):
-    """Обработка кнопки статуса уведомлений"""
-    await cmd_reminder_settings(message)
-
-
-@router.message(F.text == "✅ Напоминания ВКЛ")
-async def handle_reminders_on_button(message: Message):
-    """Включение напоминаний о дедлайнах"""
-    await db.update_reminder_settings(message.from_user.id, enable_reminders=1)
-    await message.answer(
-        "✅ <b>Напоминания о дедлайнах включены!</b>\n\n"
-        "Вы будете получать уведомления за установленное количество часов до срока выполнения задач.",
-        parse_mode="HTML",
-        reply_markup=get_reminder_settings_keyboard(),
-    )
-
-
-@router.message(F.text == "🔇 Напоминания ВЫКЛ")
-async def handle_reminders_off_button(message: Message):
-    """Выключение напоминаний о дедлайнах"""
-    await db.update_reminder_settings(message.from_user.id, enable_reminders=0)
-    await message.answer(
-        "🔇 <b>Напоминания о дедлайнах выключены!</b>\n\n"
-        "Вы не будете получать уведомления о приближающихся дедлайнах.",
-        parse_mode="HTML",
-        reply_markup=get_reminder_settings_keyboard(),
-    )
-
-
-@router.message(F.text == "⚠️ Просрочка ВКЛ")
-async def handle_overdue_on_button(message: Message):
-    """Включение напоминаний о просрочке"""
-    await db.update_reminder_settings(message.from_user.id, enable_overdue_reminders=1)
-    await message.answer(
-        "⚠️ <b>Напоминания о просрочке включены!</b>\n\n"
-        "Вы будете получать уведомления о просроченных задачах.",
-        parse_mode="HTML",
-        reply_markup=get_reminder_settings_keyboard(),
-    )
-
-
-@router.message(F.text == "🔕 Просрочка ВЫКЛ")
-async def handle_overdue_off_button(message: Message):
-    """Выключение напоминаний о просрочке"""
-    await db.update_reminder_settings(message.from_user.id, enable_overdue_reminders=0)
-    await message.answer(
-        "🔕 <b>Напоминания о просрочке выключены!</b>\n\n"
-        "Вы не будете получать уведомления о просроченных задачах.",
-        parse_mode="HTML",
-        reply_markup=get_reminder_settings_keyboard(),
-    )
-
-
-@router.message(F.text == "⏰ Изменить время")
-async def handle_change_time_button(message: Message, state: FSMContext):
-    """Обработка кнопки изменения времени напоминаний"""
-    settings = await db.get_reminder_settings(message.from_user.id)
-    current_hours = settings[2]
-
-    await message.answer(
-        f"⏰ <b>Изменение времени напоминаний</b>\n\n"
-        f"Текущее значение: <b>{current_hours} часов</b> до дедлайна\n\n"
-        f"Введите новое количество часов (от 1 до 24):\n\n"
-        f"💡 <i>Рекомендуется устанавливать 1-3 часа для своевременных напоминаний</i>",
-        parse_mode="HTML",
-        reply_markup=get_cancel_keyboard(),
-    )
-    await state.set_state(ReminderSettings.waiting_for_reminder_hours)
-
-
-@router.message(StateFilter(ReminderSettings.waiting_for_reminder_hours))
-async def process_reminder_hours(message: Message, state: FSMContext):
-    """Обработка ввода часов для напоминаний"""
-    if await handle_navigation(message, state):
-        return
-    try:
-        hours = int(message.text.strip())
-
-        if hours < 1 or hours > 24:
-            await message.answer(
-                "❌ Число должно быть от 1 до 24! Попробуйте снова:",
-                reply_markup=get_cancel_keyboard(),
-            )
-            return
-
-        await db.update_reminder_settings(
-            message.from_user.id, reminder_before_hours=hours
-        )
-        await message.answer(
-            f"✅ <b>Время напоминаний обновлено!</b>\n\n"
-            f"Теперь напоминания будут приходить за <b>{hours} ч</b> до дедлайна.",
-            parse_mode="HTML",
-            reply_markup=get_reminder_settings_keyboard(),
-        )
-        await state.clear()
-
-    except ValueError:
-        await message.answer(
-            "❌ Неверный формат! Введите число от 1 до 24:",
-            reply_markup=get_cancel_keyboard(),
-        )
-
-
-@router.message(StateFilter(DailyReminderSettings.waiting_for_daily_time))
-async def process_daily_reminder_time(message: Message, state: FSMContext):
-    """Обработка ввода времени ежедневных уведомлений"""
-    if await handle_navigation(message, state):
-        return
-    time_input = message.text.strip()
-
-    try:
-        datetime.strptime(time_input, "%H:%M")
-
-        await db.update_reminder_settings_with_time(
-            message.from_user.id, daily_overdue_time=time_input
-        )
-
-        await message.answer(
-            f"✅ <b>Время ежедневных уведомлений установлено!</b>\n\n"
-            f"Теперь вы будете получать уведомления о просроченных задачах "
-            f"каждый день в <b>{time_input}</b>",
-            parse_mode="HTML",
-            reply_markup=get_notifications_keyboard(),
-        )
-        await state.clear()
-
-    except ValueError:
-        await message.answer(
-            "❌ Неверный формат времени!\n\n"
-            "Введите время в формате ЧЧ:ММ (например, 09:00 или 18:30):",
-            reply_markup=get_cancel_keyboard(),
-        )
-
-
-@router.message(F.text == "🔙 Назад к уведомлениям")
-async def handle_back_to_notifications(message: Message):
-    """Возврат к меню уведомлений"""
-    await cmd_reminders(message)
-
-
-@router.message(F.text == "🔙 Назад в меню")
-async def handle_back_to_main_menu(message: Message):
-    """Возврат в главное меню"""
-    await message.answer("Главное меню:", reply_markup=get_main_keyboard())
-
-
-@router.message(Command("reminder_settings"))
-async def cmd_reminder_settings(message: Message):
-    """Показывает текущие настройки напоминаний"""
-    settings = await db.get_reminder_settings(message.from_user.id)
-
-    daily_time = settings[4] if len(settings) > 4 else "09:00"
-
-    settings_text = (
-        "🔔 <b>Текущие настройки напоминаний</b>\n\n"
-        f"✅ Напоминания о дедлайнах: {'ВКЛ' if settings[1] else 'ВЫКЛ'}\n"
-        f"⏰ Часов до дедлайна: {settings[2]}\n"
-        f"⚠️ Напоминания о просрочке: {'ВКЛ' if settings[3] else 'ВЫКЛ'}\n"
-        f"🌅 Время ежедневных уведомлений: <b>{daily_time}</b>\n\n"
-        "Для изменения настроек используйте меню уведомлений:"
-    )
-
-    await message.answer(
-        settings_text, parse_mode="HTML", reply_markup=get_notifications_keyboard()
-    )
 
 
 @router.message(Command("overdue"))
@@ -2995,27 +2166,6 @@ async def handle_urgent_keywords(message: Message):
 async def handle_upcoming_keywords(message: Message):
     """Обработка ключевых слов для ближайших задач"""
     await cmd_upcoming(message)
-
-
-@router.message(F.text == "📊 Группировка задач")
-@router.message(Command("group"))
-async def cmd_group(message: Message, state: FSMContext):
-    """Меню группировки задач"""
-    group_menu = (
-        "📊 <b>ГРУППИРОВКА ЗАДАЧ</b>\n\n"
-        "🎯 <b>Сгруппируйте задачи для лучшего обзора:</b>\n\n"
-        "🏷️  <b>По тегам</b> - группировка тегам\n"
-        "🎯 <b>По приоритетам</b> - по уровню важности и срочности\n"
-        "📅 <b>По датам</b> - хронологический порядок выполнения\n"
-        "📊 <b>По статусу</b> - активные, выполненные, удаленные\n"
-        "🔄 <b>Комбинированная</b> - несколько критериев сразу\n"
-        "📋 <b>Все задачи</b> - полный обзор без группировки\n\n"
-    )
-
-    await message.answer(
-        group_menu, parse_mode="HTML", reply_markup=get_grouping_keyboard()
-    )
-    await state.set_state(TaskGrouping.waiting_for_group_type)
 
 
 @router.message(StateFilter(TaskGrouping.waiting_for_group_type))

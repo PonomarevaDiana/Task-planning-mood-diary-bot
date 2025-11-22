@@ -22,6 +22,7 @@ from keyboards import (
     get_mood_calendar_keyboard,
     get_back_keyboard,
     get_back_moods_keyboard,
+    get_notes_keyboard,
 )
 
 router = Router()
@@ -90,6 +91,14 @@ async def handle_record_mood(message: Message, state: FSMContext):
         await state.update_data(existing_mood=False)
 
     await state.set_state(MoodStates.waiting_for_mood)
+
+
+@router.message(F.text == "📝 Заметки")
+async def cmd_quick_actions(message: Message, state: FSMContext):
+    await message.answer(
+        "📝 Действия с заметками\n\n" "Выберите действие:",
+        reply_markup=get_notes_keyboard(),
+    )
 
 
 @router.message(F.text == "📊 Сегодняшнее настроение")
@@ -714,10 +723,3 @@ def calculate_mood_score(mood_counts):
         total_count += count
 
     return total_score / total_count if total_count > 0 else 0
-
-
-@router.message(F.text == "🔙 Назад в меню")
-@router.message(F.text == "🔙 Назад к настроениям")
-async def handle_back_to_main(message: Message):
-    """Возврат в главное меню"""
-    await message.answer("🏠 Главное меню", reply_markup=get_main_keyboard())

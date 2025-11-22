@@ -6,32 +6,71 @@ def get_tasks_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
             [
-                KeyboardButton(text="📝 Новая задача"),
-                KeyboardButton(text="📋 Список задач"),
-            ],
-            [
-                KeyboardButton(text="✅ Завершить задачу"),
-                KeyboardButton(text="✏️ Редактировать задачу"),
-            ],
-            [
-                KeyboardButton(text="🗑️ Удалить задачу"),
-                KeyboardButton(text="🔄 Восстановить задачу"),
+                KeyboardButton(text="📝 Действия с задачами"),
+                KeyboardButton(text="📊 Просмотр задач"),
             ],
             [
                 KeyboardButton(text="🏷️ Управление тегами"),
-                KeyboardButton(text="🎯 Фильтры задач"),
+                KeyboardButton(text="📅 Актуальное"),
             ],
             [
-                KeyboardButton(text="📊 Группировка задач"),
-                KeyboardButton(text="⏰ Ближайшие задачи"),
+                KeyboardButton(text="🧹 Очистка хранилища"),
+                KeyboardButton(text="🔙 Назад в меню"),
             ],
+        ],
+        resize_keyboard=True,
+    )
+
+
+def get_actual_keyboard():
+    """Актуальное по задачам"""
+    return ReplyKeyboardMarkup(
+        keyboard=[
             [
                 KeyboardButton(text="⚠️ Просроченные"),
                 KeyboardButton(text="📅 Задачи на сегодня"),
             ],
             [
-                KeyboardButton(text="🧹 Очистка хранилища"),
-                KeyboardButton(text="🔙 Назад в меню"),
+                KeyboardButton(text="⏰ Ближайшие задачи"),
+                KeyboardButton(text="🔙 Назад к задачам"),
+            ],
+        ],
+        resize_keyboard=True,
+    )
+
+
+def get_task_actions_keyboard():
+    """Действия с задачей"""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="📝 Новая задача"),
+                KeyboardButton(text="✏️ Редактировать задачу"),
+            ],
+            [
+                KeyboardButton(text="✅ Завершить задачу"),
+                KeyboardButton(text="🗑️ Удалить задачу"),
+            ],
+            [
+                KeyboardButton(text="🔄 Восстановить задачу"),
+                KeyboardButton(text="🔙 Назад к задачам"),
+            ],
+        ],
+        resize_keyboard=True,
+    )
+
+
+def get_view_keyboard():
+    """Основная клавиатура задач"""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="📊 Группировка задач"),
+                KeyboardButton(text="🎯 Фильтры задач"),
+            ],
+            [
+                KeyboardButton(text="📋 Список задач"),
+                KeyboardButton(text="🔙 Назад к задачам"),
             ],
         ],
         resize_keyboard=True,
@@ -123,8 +162,10 @@ def get_tags_keyboard():
                 KeyboardButton(text="➖ Удалить с задачи"),
                 KeyboardButton(text="🗑️ Удалить тег полностью"),
             ],
-            [KeyboardButton(text="📋 Список тегов")],
-            [KeyboardButton(text="🔙 Назад к задачам")],
+            [
+                KeyboardButton(text="📋 Список тегов"),
+                KeyboardButton(text="🔙 Назад к задачам"),
+            ],
         ],
         resize_keyboard=True,
     )
@@ -136,16 +177,29 @@ def get_moods_keyboard():
         keyboard=[
             [
                 KeyboardButton(text="😊 Записать настроение"),
+                KeyboardButton(text="📅 Календарь настроений"),
+            ],
+            [
+                KeyboardButton(text="📝 Заметки"),
                 KeyboardButton(text="📊 Сегодняшнее настроение"),
             ],
-            [KeyboardButton(text="📅 Календарь настроений")],
+            [KeyboardButton(text="🔙 Назад в меню")],
+        ],
+        resize_keyboard=True,
+    )
+
+
+def get_notes_keyboard():
+    """Управление настроениями"""
+    return ReplyKeyboardMarkup(
+        keyboard=[
             [
                 KeyboardButton(text="📝 Добавить заметку"),
                 KeyboardButton(text="🗑️ Удалить заметку"),
             ],
             [
                 KeyboardButton(text="✏️ Изменить заметку"),
-                KeyboardButton(text="🔙 Назад в меню"),
+                KeyboardButton(text="🔙 Назад к настроениям"),
             ],
         ],
         resize_keyboard=True,
@@ -158,10 +212,9 @@ def get_mood_selection_keyboard():
         keyboard=[
             [KeyboardButton(text="😊 Отлично"), KeyboardButton(text="🙂 Хорошо")],
             [KeyboardButton(text="😐 Нормально"), KeyboardButton(text="😔 Плохо")],
-            [KeyboardButton(text="😢 Ужасно")],
             [
+                KeyboardButton(text="😢 Ужасно"),
                 KeyboardButton(text="🔙 Назад к настроениям"),
-                KeyboardButton(text="❌ Отмена"),
             ],
         ],
         resize_keyboard=True,
@@ -197,35 +250,46 @@ def get_analytics_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
             [
-                KeyboardButton(text="📈 Общая статистика"),
-                KeyboardButton(text="🎯 Анализ по приоритетам"),
-            ],
-            [
                 KeyboardButton(text="📅 Динамика выполнения"),
-                KeyboardButton(text="🏷️ Анализ по тегам"),
+                KeyboardButton(text="🏷️ Анализ распределений"),
             ],
             [
                 KeyboardButton(text="⚡ Продуктивность"),
-                KeyboardButton(text="📋 Сводный отчет"),
+                KeyboardButton(text="😊 Анализ настроений"),
             ],
             [
-                KeyboardButton(text="😊 Анализ настроений"),
-                KeyboardButton(text="📊 Статистика хранилища"),
+                KeyboardButton(text="📋 Обзорные отчеты"),
+                KeyboardButton(text="🔙 Назад в меню"),
             ],
-            [KeyboardButton(text="🔙 Назад в меню")],
         ],
         resize_keyboard=True,
     )
 
 
-def get_period_keyboard():
-    """Периоды аналитики"""
+def get_report_keyboard():
+    """Просмотр отчетов"""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📅 7 дней"), KeyboardButton(text="📅 30 дней")],
             [
-                KeyboardButton(text="📅 90 дней"),
-                KeyboardButton(text="📅 Произвольный период"),
+                KeyboardButton(text="📈 Общая статистика"),
+                KeyboardButton(text="📋 Сводный отчет"),
+            ],
+            [
+                KeyboardButton(text="📊 Статистика хранилища"),
+                KeyboardButton(text="🔙 Назад к аналитике"),
+            ],
+        ],
+        resize_keyboard=True,
+    )
+
+
+def get_distributions_keyboard():
+    """Анализ распределений"""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="🎯 Анализ по приоритетам"),
+                KeyboardButton(text="🏷️ Анализ по тегам"),
             ],
             [KeyboardButton(text="🔙 Назад к аналитике")],
         ],
@@ -239,17 +303,13 @@ def get_notifications_keyboard():
         keyboard=[
             [
                 KeyboardButton(text="🔔 Настройка напоминаний"),
-                KeyboardButton(text="⏰ Время уведомлений"),
-            ],
-            [
                 KeyboardButton(text="📱 Типы уведомлений"),
-                KeyboardButton(text="🔕 Отключить все"),
+                KeyboardButton(text="⏰ Настройка времени"),
             ],
             [
-                KeyboardButton(text="🔔 Включить все"),
                 KeyboardButton(text="📊 Статус уведомлений"),
+                KeyboardButton(text="🔙 Назад в меню"),
             ],
-            [KeyboardButton(text="🔙 Назад в меню")],
         ],
         resize_keyboard=True,
     )
@@ -264,10 +324,27 @@ def get_reminder_settings_keyboard():
                 KeyboardButton(text="🔇 Напоминания ВЫКЛ"),
             ],
             [
-                KeyboardButton(text="⏰ Изменить время"),
                 KeyboardButton(text="⚠️ Просрочка ВКЛ"),
+                KeyboardButton(text="🔕 Просрочка ВЫКЛ"),
             ],
-            [KeyboardButton(text="🔕 Просрочка ВЫКЛ")],
+            [
+                KeyboardButton(text="🔔 Включить все"),
+                KeyboardButton(text="🔕 Отключить все"),
+            ],
+            [KeyboardButton(text="🔙 Назад к уведомлениям")],
+        ],
+        resize_keyboard=True,
+    )
+
+
+def get_time_reminder_keyboard():
+    """Измениить время"""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [
+                KeyboardButton(text="⏰ Изменить время дедлайнов"),
+                KeyboardButton(text="⏰ Время ежедневных уведомлений"),
+            ],
             [KeyboardButton(text="🔙 Назад к уведомлениям")],
         ],
         resize_keyboard=True,
@@ -362,40 +439,20 @@ def get_back_cancel_keyboard():
     )
 
 
-def get_analytics_keyboard():
-    """Клавиатура раздела аналитики"""
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [
-                KeyboardButton(text="📈 Общая статистика"),
-                KeyboardButton(text="🎯 Анализ по приоритетам"),
-            ],
-            [
-                KeyboardButton(text="📅 Динамика выполнения"),
-                KeyboardButton(text="🏷️ Анализ по тегам"),
-            ],
-            [
-                KeyboardButton(text="⚡ Продуктивность"),
-                KeyboardButton(text="📋 Сводный отчет"),
-            ],
-            [
-                KeyboardButton(text="😊 Анализ настроений"),
-                KeyboardButton(text="📊 Статистика хранилища"),
-            ],
-            [KeyboardButton(text="🔙 Назад в меню")],
-        ],
-        resize_keyboard=True,
-    )
-
-
 def get_period_keyboard():
     """Клавиатура выбора периода"""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="📅 7 дней"), KeyboardButton(text="📅 14 дней")],
-            [KeyboardButton(text="📅 30 дней"), KeyboardButton(text="📅 90 дней")],
-            [KeyboardButton(text="📅 Произвольный период")],
-            [KeyboardButton(text="🔙 Назад к аналитике")],
+            [
+                KeyboardButton(text="📅 7 дней"),
+                KeyboardButton(text="📅 14 дней"),
+                KeyboardButton(text="📅 30 дней"),
+                KeyboardButton(text="📅 90 дней"),
+            ],
+            [
+                KeyboardButton(text="📅 Произвольный период"),
+                KeyboardButton(text="🔙 Назад к аналитике"),
+            ],
         ],
         resize_keyboard=True,
     )
@@ -456,8 +513,8 @@ def get_main_keyboard():
             [
                 KeyboardButton(text="🧹 Очистка"),
                 KeyboardButton(text="❓ Помощь"),
+                KeyboardButton(text="🚀 Старт"),
             ],
-            [KeyboardButton(text="🚀 Старт")],
         ],
         resize_keyboard=True,
         input_field_placeholder="Выберите раздел...",

@@ -5,6 +5,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from config import Config
 from database import db
 from reminders import init_reminder_manager
+from handlers.notifications import router as notification_router
+from handlers.tags import router as tags_router
 from handlers.tasks import router as tasks_router
 from handlers.moods import router as moods_router
 from handlers.statistics import router as stats_router
@@ -60,7 +62,8 @@ async def main():
         await init_reminder_manager(bot)
 
         asyncio.create_task(scheduled_cleanup())
-
+        dp.include_router(notification_router)
+        dp.include_router(tags_router)
         dp.include_router(tasks_router)
         dp.include_router(moods_router)
         dp.include_router(stats_router)
