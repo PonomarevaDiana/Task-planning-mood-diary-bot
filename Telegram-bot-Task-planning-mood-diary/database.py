@@ -65,7 +65,6 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER,
                     name TEXT NOT NULL,
-                    color TEXT DEFAULT '#007ACC',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users (id),
                     UNIQUE(user_id, name)
@@ -96,6 +95,7 @@ class Database:
                     sent BOOLEAN DEFAULT 0,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     sent_at DATETIME NULL,
+                    FOREIGN KEY (user_id) REFERENCES users (id),
                     FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
                 )
             """
@@ -493,7 +493,7 @@ class Database:
             )
             return await cursor.fetchall()
 
-    async def create_tag(self, user_id: int, tag_name: str, color: str = "#007ACC"):
+    async def create_tag(self, user_id: int, tag_name: str):
         """Создает тег или возвращает ID существующего"""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
@@ -506,8 +506,8 @@ class Database:
                 return existing_tag[0]
 
             cursor = await db.execute(
-                "INSERT INTO tags (user_id, name, color) VALUES (?, ?, ?)",
-                (user_id, tag_name.lower().strip(), color),
+                "INSERT INTO tags (user_id, name) VALUES (?, ?)",
+                (user_id, tag_name.lower().strip()),
             )
             await db.commit()
             return cursor.lastrowid
@@ -516,7 +516,7 @@ class Database:
         """Получает все теги пользователя"""
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
-                "SELECT id, name, color FROM tags WHERE user_id = ? ORDER BY name",
+                "SELECT id, name FROM tags WHERE user_id = ? ORDER BY name",
                 (user_id,),
             )
             return await cursor.fetchall()
@@ -550,7 +550,7 @@ class Database:
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 """
-                SELECT t.id, t.name, t.color 
+                SELECT t.id, t.name
                 FROM tags t 
                 JOIN task_tags tt ON t.id = tt.tag_id 
                 WHERE tt.task_id = ?
@@ -578,7 +578,7 @@ class Database:
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 """
-                SELECT t.name, t.color, COUNT(tt.task_id) as task_count,
+                SELECT t.name, COUNT(tt.task_id) as task_count,
                        GROUP_CONCAT(tt.task_id) as task_ids
                 FROM tags t
                 LEFT JOIN task_tags tt ON t.id = tt.tag_id

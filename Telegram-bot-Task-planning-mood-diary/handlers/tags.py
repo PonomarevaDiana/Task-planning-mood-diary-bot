@@ -22,6 +22,8 @@ from keyboards import (
     get_back_keyboard,
     get_confirm_keyboard,
     get_back_keyboard,
+    get_cancel_keyboard,
+    get_tasks_keyboard,
 )
 
 router = Router()
@@ -369,6 +371,14 @@ async def handle_tag_navigation(message: Message, state: FSMContext):
     return False
 
 
+async def handle_tasks_main(message: Message):
+    """Главное меню задач"""
+    await message.answer(
+        "📋 Управление задачами\n\nВыберите действие:",
+        reply_markup=get_tasks_keyboard(),
+    )
+
+
 @router.message(StateFilter(NewTagStates.waiting_for_tag_name))
 async def process_new_tag_name(message: Message, state: FSMContext):
     """Обработка названия нового тега"""
@@ -400,7 +410,7 @@ async def cmd_add_tag(message: Message, state: FSMContext):
     """Начать процесс добавления тега к задаче"""
     await message.answer(
         "➕ Добавление тега к задаче\n\n" "Введите ID задачи:",
-        reply_markup=get_back_keyboard(),
+        reply_markup=get_cancel_keyboard(),
     )
     await state.set_state(AddTagStates.waiting_for_task_id)
 
@@ -424,13 +434,13 @@ async def process_addtag_task_id(message: Message, state: FSMContext):
 
         await message.answer(
             f"➕ Добавление тега к задаче #{task_id}\n\n" "Введите название тега:",
-            reply_markup=get_back_keyboard(),
+            reply_markup=get_cancel_keyboard(),
         )
         await state.set_state(AddTagStates.waiting_for_tag_name)
 
     except ValueError:
         await message.answer(
-            "❌ Неверный формат ID! Введите число:", reply_markup=get_back_keyboard()
+            "❌ Неверный формат ID! Введите число:", reply_markup=get_cancel_keyboard()
         )
 
 
