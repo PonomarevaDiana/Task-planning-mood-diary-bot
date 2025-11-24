@@ -1,5 +1,5 @@
 from aiogram import Router, F
-import aiosqlite
+import asyncio
 from aiogram.types import Message
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -33,9 +33,6 @@ from keyboards import (
     get_status_keyboard,
     get_filter_date,
     get_grouping_keyboard,
-    get_grouping_period_keyboard,
-    get_grouping_priority_keyboard,
-    get_grouping_status_keyboard,
     get_task_actions_keyboard,
     get_actual_keyboard,
     get_view_keyboard,
@@ -368,6 +365,62 @@ def format_due_date(due_date):
     except (ValueError, AttributeError, TypeError) as e:
         print(f"Error formatting due date '{due_date}': {e}")
         return "⏳ без срока"
+
+
+def create_task_card(task_data, task_tags=None):
+    """Создает  карточку задачи"""
+    if not task_data:
+        return "❌ Ошибка данных задачи"
+
+    task_id, content, due_date, priority, status, is_deleted = task_data
+    priority_config = {
+        "high": {"icon": "🔴", "name": "ВЫСОКИЙ"},
+        "medium": {"icon": "🟡", "name": "СРЕДНИЙ"},
+        "low": {"icon": "🟢", "name": "НИЗКИЙ"},
+    }
+
+    status_config = {
+        "pending": {"icon": "📝", "name": "АКТИВНА"},
+        "completed": {"icon": "✅", "name": "ВЫПОЛНЕНА"},
+        "deleted": {"icon": "🗑️", "name": "УДАЛЕНА"},
+    }
+
+    config = priority_config.get(priority, priority_config["medium"])
+    status_info = status_config.get(status, status_config["pending"])
+    card = f"{config['icon']} <b>ЗАДАЧА #{task_id}</b> {status_info['icon']}\n"
+
+    if len(content) > 50:
+        words = content.split()
+        lines = []
+        current_line = ""
+
+        for word in words:
+            if len(current_line + word) <= 35:
+                current_line += word + " "
+            else:
+                lines.append(current_line.strip())
+                current_line = word + " "
+
+        if current_line:
+            lines.append(current_line.strip())
+
+        for i, line in enumerate(lines):
+            prefix = "📝 " if i == 0 else "   "
+            card += f"<code></code>{prefix}{line}\n"
+    else:
+        card += f"<code></code>{content}\n"
+
+    card += f"<code></code>Приоритет: {config['icon']} {config['name']}\n"
+    card += f"<code></code> Статус: {status_info['icon']} {status_info['name']}\n"
+
+    due_text = format_due_date(due_date)
+    card += f"<code></code>{due_text}\n"
+
+    if task_tags:
+        tags_text = " ".join([f"<code>#{tag[1]}</code>" for tag in task_tags])
+        card += f"<code></code>Теги: {tags_text}\n"
+
+    return card
 
 
 def describe_filters(filters: dict) -> str:
@@ -2221,35 +2274,14 @@ async def process_group_type(message: Message, state: FSMContext):
         await group_by_tags(message, state)
 
     elif message.text == "🎯 По приоритетам":
-        await message.answer(
-            "🎯 Выберите приоритет для группировки:",
-            parse_mode="HTML",
-            reply_markup=get_grouping_priority_keyboard(),
-        )
-        await state.set_state(TaskGrouping.waiting_for_specific_choice)
-        await state.update_data(group_type="priority")
+        await group_by_priority(message, state)
 
     elif message.text == "📅 По датам":
-        await message.answer(
-            "📅 Выберите период для группировки:",
-            parse_mode="HTML",
-            reply_markup=get_grouping_period_keyboard(),
-        )
-        await state.set_state(TaskGrouping.waiting_for_specific_choice)
-        await state.update_data(group_type="date")
+        await group_by_date(message, state)
 
     elif message.text == "📊 По статусу":
-        await message.answer(
-            "📊 Выберите статус для группировки:",
-            parse_mode="HTML",
-            reply_markup=get_grouping_status_keyboard(),
-        )
-        await state.set_state(TaskGrouping.waiting_for_specific_choice)
-        await state.update_data(group_type="status")
+        await group_by_status(message, state)
 
-    elif message.text == "📋 Все задачи":
-        await show_all_tasks(message)
-        await state.clear()
     else:
         await message.answer(
             "❌ Пожалуйста, выберите тип группировки из меню:",
@@ -2263,10 +2295,18 @@ async def group_by_tags(message: Message, state: FSMContext):
     tasks = await db.get_user_tasks_with_priority(user_id, "pending")
 
     if not tasks:
-        await message.answer(
-            "🎉 Нет активных задач для группировки!",
-            reply_markup=get_tasks_keyboard(),
+        empty_msg = (
+            f"🏷️ <b>ГРУППИРОВКА ПО ТЕГАМ</b>\n"
+            f"<code></code> 📊 Состояние: <b>НЕТ АКТИВНЫХ ЗАДАЧ</b>\n"
+            f"<code></code> 💡 Рекомендации:\n"
+            f"<code></code> • Создайте новые задачи\n"
+            f"<code></code> • Добавьте к ним теги\n"
+            f"<code></code> • Используйте теги для организации\n"
         )
+        await message.answer(
+            empty_msg, parse_mode="HTML", reply_markup=get_tasks_keyboard()
+        )
+        await state.clear()
         return
 
     tasks_by_tag = {}
@@ -2277,7 +2317,7 @@ async def group_by_tags(message: Message, state: FSMContext):
         if not task_data:
             continue
 
-        task_id, content, due_date, priority, status, is_deleted = task_data
+        task_id = task_data[0]
         task_tags = await db.get_task_tags(task_id)
 
         if task_tags:
@@ -2289,655 +2329,506 @@ async def group_by_tags(message: Message, state: FSMContext):
         else:
             tasks_without_tags.append(task)
 
-    grouped_text = "🏷️ <b>ГРУППИРОВКА ПО ТЕГАМ</b> 🏷️\n\n"
+    total_tasks = len(tasks)
+    total_tags = len(tasks_by_tag)
 
-    if tasks_by_tag:
-        for tag_name, tag_tasks in tasks_by_tag.items():
-            grouped_text += f"🔸 <b>#{tag_name}</b> ({len(tag_tasks)} задач):\n"
-            for task in tag_tasks[:5]:
-                task_data = extract_task_data(task)
-                if task_data:
-                    task_id, content, due_date, priority, status, is_deleted = task_data
-                    priority_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(
-                        priority, "🟡"
-                    )
-                    due_text = format_due_date(due_date)
+    header = (
+        f"🏷️ <b>ГРУППИРОВКА ПО ТЕГАМ</b>\n"
+        f"<code></code> 📊 Всего задач: <b>{total_tasks}</b>\n"
+        f"<code></code> 🏷️ Уникальных тегов: <b>{total_tags}</b>\n"
+        f"<code></code> 🔸 Без тегов: <b>{len(tasks_without_tags)}</b>\n"
+    )
 
-                    display_content = content
-                    if len(display_content) > 30:
-                        display_content = display_content[:30] + "..."
+    await message.answer(header, parse_mode="HTML")
 
-                    grouped_text += f"   {priority_icon} #{task_id} {display_content}\n"
-                    grouped_text += f"      {due_text}\n"
-
-            if len(tag_tasks) > 5:
-                grouped_text += f"   ... и еще {len(tag_tasks) - 5} задач\n"
-            grouped_text += "\n"
+    for tag_name, tag_tasks in tasks_by_tag.items():
+        await process_tag_group(message, tag_name, tag_tasks)
 
     if tasks_without_tags:
-        grouped_text += f"🔸 <b>Без тегов</b> ({len(tasks_without_tags)} задач):\n"
-        for task in tasks_without_tags[:5]:
-            task_data = extract_task_data(task)
-            if task_data:
-                task_id, content, due_date, priority, status, is_deleted = task_data
-                priority_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(
-                    priority, "🟡"
-                )
-                due_text = format_due_date(due_date)
+        await process_tag_group(message, "БЕЗ ТЕГОВ", tasks_without_tags)
 
-                display_content = content
-                if len(display_content) > 30:
-                    display_content = display_content[:30] + "..."
-
-                grouped_text += f"   {priority_icon} #{task_id} {display_content}\n"
-                grouped_text += f"      {due_text}\n"
-
-        if len(tasks_without_tags) > 5:
-            grouped_text += f"   ... и еще {len(tasks_without_tags) - 5} задач\n"
-
-    grouped_text += (
-        f"\n📊 <b>Итого:</b> {len(tasks)} задач в {len(tasks_by_tag)} категориях"
+    footer = (
+        f"📈 <b>ИТОГИ ГРУППИРОВКИ ПО ТЕГАМ</b>\n"
+        f"<code></code> 📊 Всего обработано: <b>{total_tasks}</b> задач\n"
+        f"<code></code> 🏷️ Тегов использовано: <b>{total_tags}</b>\n"
+        f"<code></code> 🔸 Без тегов: <b>{len(tasks_without_tags)}</b>\n"
     )
 
-    await message.answer(
-        grouped_text, parse_mode="HTML", reply_markup=get_tasks_keyboard()
-    )
+    await message.answer(footer, parse_mode="HTML", reply_markup=get_tasks_keyboard())
     await state.clear()
 
 
-async def group_by_priority(message: Message, state: FSMContext):
-    """Группировка задач по приоритетам"""
-    user_id = message.from_user.id
-
-    try:
-        priority_stats = await db.get_tasks_grouped_by_priority_detailed(user_id)
-
-        if not priority_stats:
-            await message.answer(
-                "🎉 Нет активных задач для группировки!",
-                reply_markup=get_tasks_keyboard(),
-            )
-            return
-
-        high_tasks = await db.get_tasks_by_priority(user_id, "high")
-        medium_tasks = await db.get_tasks_by_priority(user_id, "medium")
-        low_tasks = await db.get_tasks_by_priority(user_id, "low")
-
-        grouped_text = "🎯 <b>ГРУППИРОВКА ПО ПРИОРИТЕТАМ</b> 🎯\n\n"
-
-        priority_info = {
-            "high": {"icon": "🔴", "name": "ВЫСОКИЙ ПРИОРИТЕТ", "tasks": high_tasks},
-            "medium": {
-                "icon": "🟡",
-                "name": "СРЕДНИЙ ПРИОРИТЕТ",
-                "tasks": medium_tasks,
-            },
-            "low": {"icon": "🟢", "name": "НИЗКИЙ ПРИОРИТЕТ", "tasks": low_tasks},
-        }
-
-        total_tasks = 0
-
-        for priority_data in priority_stats:
-            priority, total, overdue, no_date = priority_data
-            total_tasks += total
-
-            if priority in priority_info and total > 0:
-                info = priority_info[priority]
-                tasks_list = info["tasks"]
-
-                grouped_text += (
-                    f"{info['icon']} <b>{info['name']}</b> ({total} задач):\n"
-                )
-
-                if overdue > 0:
-                    grouped_text += f"   ⚠️ Просрочено: {overdue}\n"
-                if no_date > 0:
-                    grouped_text += f"   ⏳ Без срока: {no_date}\n"
-
-                for task in tasks_list:
-                    task_data = extract_task_data(task)
-                    if task_data:
-                        (
-                            task_id,
-                            content,
-                            due_date,
-                            task_priority,
-                            status,
-                            is_deleted,
-                        ) = task_data
-
-                        display_content = (
-                            content[:25] + "..." if len(content) > 25 else content
-                        )
-                        due_text = format_due_date(due_date)
-
-                        grouped_text += f"   #{task_id} {display_content}\n"
-                        if due_date:
-                            grouped_text += f"      {due_text}\n"
-
-                if len(tasks_list) > 3:
-                    grouped_text += f"   ... и еще {len(tasks_list) - 3} задач\n"
-                grouped_text += "\n"
-
-        grouped_text += f"📊 <b>ОБЩАЯ СТАТИСТИКА:</b>\n"
-        for priority_data in priority_stats:
-            priority, total, overdue, no_date = priority_data
-            if total > 0:
-                icon = priority_info[priority]["icon"]
-                grouped_text += (
-                    f"   {icon} {priority_info[priority]['name']}: {total} задач"
-                )
-                if overdue > 0:
-                    grouped_text += f" (⚠️{overdue})"
-                grouped_text += "\n"
-
-        grouped_text += f"   📊 Всего активных задач: {total_tasks}"
-
-        await message.answer(
-            grouped_text, parse_mode="HTML", reply_markup=get_tasks_keyboard()
-        )
-        await state.clear()
-
-    except Exception as e:
-        await message.answer(
-            f"❌ Ошибка при группировке по приоритетам: {e}",
-            reply_markup=get_tasks_keyboard(),
-        )
-        await state.clear()
-
-
-async def group_by_date(message: Message, state: FSMContext):
-    """Группировка задач по датам"""
-    user_id = message.from_user.id
-    tasks = await db.get_user_tasks_with_priority(user_id, "pending")
-
-    if not tasks:
-        await message.answer(
-            "🎉 Нет активных задач для группировки!",
-            reply_markup=get_tasks_keyboard(),
-        )
-        return
-
-    tasks_by_date = {}
-    tasks_without_date = []
-    today = datetime.now().date()
+async def process_tag_group(message: Message, tag_name: str, tasks: list):
+    """Обрабатывает одну группу тегов"""
+    total_tasks = len(tasks)
+    overdue_count = 0
+    today_count = 0
+    urgent_count = 0
 
     for task in tasks:
         task_data = extract_task_data(task)
-        if not task_data:
-            continue
-
-        task_id, content, due_date, priority, status, is_deleted = task_data
-
-        if due_date:
+        if task_data and task_data[2]:
             try:
-                due_datetime = datetime.fromisoformat(due_date.replace(" ", "T"))
-                date_key = due_datetime.date()
+                due_date = task_data[2]
+                if "T" in due_date:
+                    due_datetime = datetime.fromisoformat(due_date)
+                else:
+                    due_datetime = datetime.fromisoformat(due_date + "T00:00:00")
 
-                if date_key not in tasks_by_date:
-                    tasks_by_date[date_key] = []
-                tasks_by_date[date_key].append(task)
-            except (ValueError, TypeError):
-                tasks_without_date.append(task)
-        else:
-            tasks_without_date.append(task)
+                if due_datetime < datetime.now():
+                    overdue_count += 1
+                elif due_datetime.date() == datetime.now().date():
+                    today_count += 1
+                    urgent_count += 1
+                elif (due_datetime.date() - datetime.now().date()).days <= 2:
+                    urgent_count += 1
+            except:
+                pass
 
-    sorted_dates = sorted(tasks_by_date.keys())
+    if tag_name == "БЕЗ ТЕГОВ":
+        group_header = "🔸 <b>ЗАДАЧИ БЕЗ ТЕГОВ</b>"
+        icon = "🔸"
+    else:
+        group_header = f"🏷️ <b>ТЕГ: #{tag_name}</b>"
+        icon = "🏷️"
 
-    grouped_text = "📅 <b>ГРУППИРОВКА ПО ДАТАМ</b> 📅\n\n"
-
-    for date in sorted_dates:
-        date_tasks = tasks_by_date[date]
-        if date == today:
-            date_category = "🎯 СЕГОДНЯ"
-        elif date == today + timedelta(days=1):
-            date_category = "⏰ ЗАВТРА"
-        elif date < today:
-            date_category = "⚠️ ПРОСРОЧЕННЫЕ"
-        elif (date - today).days <= 7:
-            date_category = "📈 ЭТА НЕДЕЛЯ"
-        else:
-            date_category = "📅 БУДУЩЕЕ"
-
-        grouped_text += f"🕐 <b>{date_category}</b> - {date.strftime('%d.%m.%Y')} ({len(date_tasks)} задач):\n"
-
-        for task in date_tasks[:6]:
-            task_data = extract_task_data(task)
-            if task_data:
-                task_id, content, due_date, priority, status, is_deleted = task_data
-                priority_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(
-                    priority, "🟡"
-                )
-
-                display_content = content
-                if len(display_content) > 30:
-                    display_content = display_content[:30] + "..."
-
-                grouped_text += f"   {priority_icon} #{task_id} {display_content}\n"
-
-        if len(date_tasks) > 6:
-            grouped_text += f"   ... и еще {len(date_tasks) - 6} задач\n"
-        grouped_text += "\n"
-
-    if tasks_without_date:
-        grouped_text += f"⏳ <b>БЕЗ СРОКА</b> ({len(tasks_without_date)} задач):\n"
-        for task in tasks_without_date[:8]:
-            task_data = extract_task_data(task)
-            if task_data:
-                task_id, content, due_date, priority, status, is_deleted = task_data
-                priority_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(
-                    priority, "🟡"
-                )
-
-                display_content = content
-                if len(display_content) > 30:
-                    display_content = display_content[:30] + "..."
-
-                grouped_text += f"   {priority_icon} #{task_id} {display_content}\n"
-
-        if len(tasks_without_date) > 8:
-            grouped_text += f"   ... и еще {len(tasks_without_date) - 8} задач\n"
-
-    total_tasks = len(tasks)
-    grouped_text += f"\n📊 <b>Итого:</b> {total_tasks} задач по датам выполнения"
-
-    await message.answer(
-        grouped_text,
-        parse_mode="HTML",
-        reply_markup=get_tasks_keyboard(),
+    header = (
+        f"{group_header}\n" f"<code></code> 📊 Задач в группе: <b>{total_tasks}</b>\n"
     )
+
+    if overdue_count > 0:
+        header += f"<code></code> 🚨 Просрочено: <b>{overdue_count}</b>\n"
+    if today_count > 0:
+        header += f"<code></code> 🎯 На сегодня: <b>{today_count}</b>\n"
+    if urgent_count > 0:
+        header += f"<code></code> ⚡ Срочные: <b>{urgent_count}</b>\n"
+
+    await message.answer(header, parse_mode="HTML")
+
+    for i, task in enumerate(tasks, 1):
+        task_data = extract_task_data(task)
+        if task_data:
+            task_id, content, due_date, priority, status, is_deleted = task_data
+            all_task_tags = await db.get_task_tags(task_id)
+            card = create_task_card(task_data, all_task_tags)
+            card += f"\n📁 <i>Группа: {tag_name} | Задача {i} из {total_tasks}</i>"
+
+            await message.answer(card, parse_mode="HTML")
+
+        if i % 2 == 0:
+            await asyncio.sleep(0.1)
+
+
+async def group_by_priority(message: Message, state: FSMContext):
+    """Группировка задач по приоритетам с детальными карточками"""
+    user_id = message.from_user.id
+
+    try:
+        tasks = await db.get_user_tasks_with_priority(user_id, "pending")
+
+        if not tasks:
+            empty_msg = (
+                f"🎯 <b>ГРУППИРОВКА ПО ПРИОРИТЕТАМ</b>\n"
+                f"<code></code> 📊 Состояние: <b>НЕТ АКТИВНЫХ ЗАДАЧ</b>\n"
+                f"<code></code> 💡 Создайте новые задачи!\n"
+            )
+            await message.answer(
+                empty_msg, parse_mode="HTML", reply_markup=get_tasks_keyboard()
+            )
+            await state.clear()
+            return
+
+        tasks_by_priority = {"high": [], "medium": [], "low": []}
+
+        for task in tasks:
+            task_data = extract_task_data(task)
+            if task_data:
+                priority = task_data[3]
+                if priority in tasks_by_priority:
+                    tasks_by_priority[priority].append(task)
+
+        total_tasks = len(tasks)
+        high_count = len(tasks_by_priority["high"])
+        medium_count = len(tasks_by_priority["medium"])
+        low_count = len(tasks_by_priority["low"])
+        header = (
+            f"🎯 <b>ГРУППИРОВКА ПО ПРИОРИТЕТАМ</b>\n"
+            f"<code></code> 📊 Всего задач: <b>{total_tasks}</b>\n"
+            f"<code></code> 🔴 Высокий: <b>{high_count}</b>\n"
+            f"<code></code> 🟡 Средний: <b>{medium_count}</b>\n"
+            f"<code></code> 🟢 Низкий: <b>{low_count}</b>\n"
+        )
+
+        await message.answer(header, parse_mode="HTML")
+        priority_config = {
+            "high": {"name": "🔴 ВЫСОКИЙ ПРИОРИТЕТ", "icon": "🔴"},
+            "medium": {"name": "🟡 СРЕДНИЙ ПРИОРИТЕТ", "icon": "🟡"},
+            "low": {"name": "🟢 НИЗКИЙ ПРИОРИТЕТ", "icon": "🟢"},
+        }
+
+        for priority, priority_tasks in tasks_by_priority.items():
+            if priority_tasks:
+                config = priority_config[priority]
+                await process_priority_group(
+                    message, config["name"], config["icon"], priority_tasks
+                )
+
+        footer = (
+            f"📈 <b>ИТОГИ ГРУППИРОВКИ ПО ПРИОРИТЕТАМ</b>\n"
+            f"<code></code> 📊 Всего обработано: <b>{total_tasks}</b> задач\n"
+            f"<code></code> 🔴 Высокий: <b>{high_count}</b>\n"
+            f"<code></code> 🟡 Средний: <b>{medium_count}</b>\n"
+            f"<code></code> 🟢 Низкий: <b>{low_count}</b>\n"
+        )
+
+        await message.answer(
+            footer, parse_mode="HTML", reply_markup=get_tasks_keyboard()
+        )
+
+    except Exception as e:
+        error_msg = (
+            f"❌ <b>ОШИБКА ГРУППИРОВКИ ПО ПРИОРИТЕТАМ</b>\n"
+            f"<code></code> 🔧 Техническая информация:\n"
+            f"<code></code> • Ошибка: {str(e)[:50]}...\n"
+        )
+        await message.answer(
+            error_msg, parse_mode="HTML", reply_markup=get_tasks_keyboard()
+        )
+
+    await state.clear()
+
+
+async def process_priority_group(
+    message: Message, group_name: str, icon: str, tasks: list
+):
+    """Обрабатывает одну группу приоритетов"""
+    total_tasks = len(tasks)
+    overdue_count = 0
+    today_count = 0
+    urgent_count = 0
+
+    for task in tasks:
+        task_data = extract_task_data(task)
+        if task_data and task_data[2]:
+            try:
+                due_date = task_data[2]
+                if "T" in due_date:
+                    due_datetime = datetime.fromisoformat(due_date)
+                else:
+                    due_datetime = datetime.fromisoformat(due_date + "T00:00:00")
+
+                if due_datetime < datetime.now():
+                    overdue_count += 1
+                    urgent_count += 1
+                elif due_datetime.date() == datetime.now().date():
+                    today_count += 1
+                    urgent_count += 1
+                elif (due_datetime.date() - datetime.now().date()).days <= 2:
+                    urgent_count += 1
+            except:
+                pass
+
+    header = (
+        f"{icon} <b>{group_name}</b>\n"
+        f"<code></code> 📊 Задач в группе: <b>{total_tasks}</b>\n"
+    )
+
+    if overdue_count > 0:
+        header += f"<code></code> 🚨 Просрочено: <b>{overdue_count}</b>\n"
+    if today_count > 0:
+        header += f"<code></code> 🎯 На сегодня: <b>{today_count}</b>\n"
+    if urgent_count > 0:
+        header += f"<code></code> ⚡ Срочные: <b>{urgent_count}</b>\n"
+
+    await message.answer(header, parse_mode="HTML")
+    for i, task in enumerate(tasks, 1):
+        task_data = extract_task_data(task)
+        if task_data:
+            task_id, content, due_date, priority, status, is_deleted = task_data
+            task_tags = await db.get_task_tags(task_id)
+            card = create_task_card(task_data, task_tags)
+            card += f"\n📁 <i>Группа: {group_name} | Задача {i} из {total_tasks}</i>"
+
+            await message.answer(card, parse_mode="HTML")
+
+        if i % 2 == 0:
+            await asyncio.sleep(0.1)
+
+
+async def group_by_date(message: Message, state: FSMContext):
+    """Группировка задач по датам с детальными карточками"""
+    user_id = message.from_user.id
+
+    try:
+        tasks = await db.get_user_tasks_with_priority(user_id, "pending")
+
+        if not tasks:
+            empty_msg = (
+                f"📅 <b>ГРУППИРОВКА ПО ДАТАМ</b>\n"
+                f"<code></code> 📊 Состояние: <b>НЕТ АКТИВНЫХ ЗАДАЧ</b>\n"
+                f"<code></code> 💡 Создайте задачи со сроками!\n"
+            )
+            await message.answer(
+                empty_msg, parse_mode="HTML", reply_markup=get_tasks_keyboard()
+            )
+            await state.clear()
+            return
+
+        today = datetime.now().date()
+        tasks_by_date = {
+            "ПРОСРОЧЕННЫЕ": [],
+            "СЕГОДНЯ": [],
+            "ЗАВТРА": [],
+            "ЭТА НЕДЕЛЯ": [],
+            "БУДУЩЕЕ": [],
+            "БЕЗ СРОКА": [],
+        }
+
+        for task in tasks:
+            task_data = extract_task_data(task)
+            if not task_data:
+                continue
+
+            due_date = task_data[2]
+            if not due_date:
+                tasks_by_date["БЕЗ СРОКА"].append(task)
+                continue
+
+            try:
+                if "T" in due_date:
+                    due_datetime = datetime.fromisoformat(due_date)
+                else:
+                    due_datetime = datetime.fromisoformat(due_date + "T00:00:00")
+
+                due_date_only = due_datetime.date()
+
+                if due_date_only < today:
+                    tasks_by_date["ПРОСРОЧЕННЫЕ"].append(task)
+                elif due_date_only == today:
+                    tasks_by_date["СЕГОДНЯ"].append(task)
+                elif due_date_only == today + timedelta(days=1):
+                    tasks_by_date["ЗАВТРА"].append(task)
+                elif (due_date_only - today).days <= 7:
+                    tasks_by_date["ЭТА НЕДЕЛЯ"].append(task)
+                else:
+                    tasks_by_date["БУДУЩЕЕ"].append(task)
+
+            except (ValueError, TypeError):
+                tasks_by_date["БЕЗ СРОКА"].append(task)
+
+        total_tasks = len(tasks)
+        overdue_count = len(tasks_by_date["ПРОСРОЧЕННЫЕ"])
+        today_count = len(tasks_by_date["СЕГОДНЯ"])
+        tomorrow_count = len(tasks_by_date["ЗАВТРА"])
+        week_count = len(tasks_by_date["ЭТА НЕДЕЛЯ"])
+        future_count = len(tasks_by_date["БУДУЩЕЕ"])
+        no_date_count = len(tasks_by_date["БЕЗ СРОКА"])
+
+        header = (
+            f"📅 <b>ГРУППИРОВКА ПО ДАТАМ</b>\n"
+            f"<code></code> 📊 Всего задач: <b>{total_tasks}</b>\n"
+            f"<code></code> 🚨 Просрочено: <b>{overdue_count}</b>\n"
+            f"<code></code> 🎯 Сегодня: <b>{today_count}</b>\n"
+            f"<code></code> ⏰ Завтра: <b>{tomorrow_count}</b>\n"
+            f"<code></code> 📅 Неделя: <b>{week_count}</b>\n"
+            f"<code></code> 🗓️ Будущее: <b>{future_count}</b>\n"
+            f"<code></code> ⏳ Без срока: <b>{no_date_count}</b>\n"
+        )
+
+        await message.answer(header, parse_mode="HTML")
+        date_config = {
+            "ПРОСРОЧЕННЫЕ": {"tasks": tasks_by_date["ПРОСРОЧЕННЫЕ"], "icon": "🚨"},
+            "СЕГОДНЯ": {"tasks": tasks_by_date["СЕГОДНЯ"], "icon": "🎯"},
+            "ЗАВТРА": {"tasks": tasks_by_date["ЗАВТРА"], "icon": "⏰"},
+            "ЭТА НЕДЕЛЯ": {"tasks": tasks_by_date["ЭТА НЕДЕЛЯ"], "icon": "📅"},
+            "БУДУЩЕЕ": {"tasks": tasks_by_date["БУДУЩЕЕ"], "icon": "🗓️"},
+            "БЕЗ СРОКА": {"tasks": tasks_by_date["БЕЗ СРОКА"], "icon": "⏳"},
+        }
+
+        for date_name, date_data in date_config.items():
+            if date_data["tasks"]:
+                await process_date_group(
+                    message, date_name, date_data["icon"], date_data["tasks"]
+                )
+
+        footer = (
+            f"📈 <b>ИТОГИ ГРУППИРОВКИ ПО ДАТАМ</b>\n"
+            f"<code></code> 📊 Всего обработано: <b>{total_tasks}</b> задач\n"
+            f"<code></code> 🚨 Просрочено: <b>{overdue_count}</b>\n"
+            f"<code></code> 🎯 Сегодня: <b>{today_count}</b>\n"
+            f"<code></code> ⏰ Завтра: <b>{tomorrow_count}</b>\n"
+            f"<code></code> 📅 Неделя: <b>{week_count}</b>\n"
+            f"<code></code> 🗓️ Будущее: <b>{future_count}</b>\n"
+            f"<code></code> ⏳ Без срока: <b>{no_date_count}</b>\n"
+        )
+
+        await message.answer(
+            footer, parse_mode="HTML", reply_markup=get_tasks_keyboard()
+        )
+
+    except Exception as e:
+        error_msg = (
+            f"❌ <b>ОШИБКА ГРУППИРОВКИ ПО ДАТАМ</b>\n"
+            f"<code></code> 🔧 Техническая информация:\n"
+            f"<code></code> • Ошибка: {str(e)[:50]}...\n"
+        )
+        await message.answer(
+            error_msg, parse_mode="HTML", reply_markup=get_tasks_keyboard()
+        )
+
     await state.clear()
 
 
 async def group_by_status(message: Message, state: FSMContext):
-    """Группировка задач по статусам"""
+    """Группировка задач по статусам с детальными карточками"""
     user_id = message.from_user.id
 
     try:
         active_tasks = await db.get_user_tasks_with_priority(user_id, "pending")
         completed_tasks = await db.get_user_tasks(user_id, "completed")
         deleted_tasks = await db.get_deleted_tasks(user_id)
-
-        grouped_text = "📊 <b>ГРУППИРОВКА ПО СТАТУСАМ</b> 📊\n\n"
-
-        if active_tasks:
-            grouped_text += f"📝 <b>АКТИВНЫЕ ЗАДАЧИ</b> ({len(active_tasks)}):\n"
-            for task in active_tasks[:5]:
-                task_data = extract_task_data(task)
-                if task_data:
-                    task_id, content, due_date, priority, status, is_deleted = task_data
-                    priority_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(
-                        priority, "🟡"
-                    )
-                    due_text = format_due_date(due_date)
-
-                    display_content = content
-                    if len(display_content) > 25:
-                        display_content = display_content[:25] + "..."
-
-                    grouped_text += f"   {priority_icon} #{task_id} {display_content}\n"
-                    grouped_text += f"      {due_text}\n"
-
-            if len(active_tasks) > 5:
-                grouped_text += f"   ... и еще {len(active_tasks) - 5} активных задач\n"
-            grouped_text += "\n"
-
-        if completed_tasks:
-            grouped_text += f"✅ <b>ВЫПОЛНЕННЫЕ ЗАДАЧИ</b> ({len(completed_tasks)}):\n"
-            for task in completed_tasks[:3]:
-                task_data = extract_task_data(task)
-                if task_data:
-                    task_id, content, due_date, priority, status, is_deleted = task_data
-
-                    display_content = content
-                    if len(display_content) > 30:
-                        display_content = display_content[:30] + "..."
-
-                    grouped_text += f"   ✅ #{task_id} {display_content}\n"
-
-            if len(completed_tasks) > 3:
-                grouped_text += (
-                    f"   ... и еще {len(completed_tasks) - 3} выполненных задач\n"
-                )
-            grouped_text += "\n"
-
-        if deleted_tasks:
-            grouped_text += f"🗑️ <b>УДАЛЕННЫЕ ЗАДАЧИ</b> ({len(deleted_tasks)}):\n"
-            for task in deleted_tasks[:3]:
-                task_data = extract_task_data(task)
-                if task_data:
-                    task_id, content, due_date, priority, status, is_deleted = task_data
-
-                    display_content = content
-                    if len(display_content) > 30:
-                        display_content = display_content[:30] + "..."
-
-                    grouped_text += f"   🗑️ #{task_id} {display_content}\n"
-
-            if len(deleted_tasks) > 3:
-                grouped_text += (
-                    f"   ... и еще {len(deleted_tasks) - 3} удаленных задач\n"
-                )
-
         total_tasks = len(active_tasks) + len(completed_tasks) + len(deleted_tasks)
-        grouped_text += f"\n📈 <b>ОБЩАЯ СТАТИСТИКА:</b>\n"
-        grouped_text += f"   📝 Активные: {len(active_tasks)}\n"
-        grouped_text += f"   ✅ Выполненные: {len(completed_tasks)}\n"
-        grouped_text += f"   🗑️ Удаленные: {len(deleted_tasks)}\n"
-        grouped_text += f"   📊 Всего: {total_tasks} задач"
 
-        await message.answer(
-            grouped_text, parse_mode="HTML", reply_markup=get_tasks_keyboard()
-        )
-        await state.clear()
-
-    except Exception as e:
-        await message.answer(
-            f"❌ Ошибка при группировке по статусам: {e}",
-            reply_markup=get_tasks_keyboard(),
-        )
-        await state.clear()
-
-
-async def group_by_specific_priority(
-    message: Message, state: FSMContext, priority: str
-):
-    """Группировка по конкретному приоритету с красивым оформлением"""
-    user_id = message.from_user.id
-
-    try:
-        tasks = await db.get_tasks_by_priority(user_id, priority)
-
-        if not tasks:
-            priority_names = {
-                "high": "🔴 высоким",
-                "medium": "🟡 средним",
-                "low": "🟢 низким",
-            }
-            priority_icons = {"high": "🔴", "medium": "🟡", "low": "🟢"}
-
-            empty_message = (
-                f"{priority_icons[priority]} <b>ЗАДАЧИ С {priority_names[priority].upper()} ПРИОРИТЕТОМ</b>\n\n"
-                "✨ <i>Пока нет задач в этой категории!</i>\n\n"
-                "💡 <b>Советы:</b>\n"
-                "• Создайте новые задачи через '📝 Новая задача'\n"
-                "• Установите соответствующий приоритет\n"
-                "• Используйте теги для лучшей организации"
+        if total_tasks == 0:
+            empty_msg = (
+                f"📊 <b>ГРУППИРОВКА ПО СТАТУСАМ</b>\n"
+                f"<code></code> 📊 Состояние: <b>НЕТ ЗАДАЧ</b>\n"
+                f"<code></code> 💡 Создайте первую задачу!\n"
             )
-
             await message.answer(
-                empty_message,
-                parse_mode="HTML",
-                reply_markup=get_tasks_keyboard(),
+                empty_msg, parse_mode="HTML", reply_markup=get_tasks_keyboard()
             )
             await state.clear()
             return
 
-        priority_config = {
-            "high": {
-                "icon": "🔴",
-                "name": "ВЫСОКИЙ ПРИОРИТЕТ",
-                "emoji": "🚨",
-                "color": "🔴",
-                "description": "Критически важные задачи требующие немедленного внимания",
-                "header_emoji": "🎯",
-            },
-            "medium": {
-                "icon": "🟡",
-                "name": "СРЕДНИЙ ПРИОРИТЕТ",
-                "emoji": "⚡",
-                "color": "🟡",
-                "description": "Важные задачи с установленными сроками",
-                "header_emoji": "📅",
-            },
-            "low": {
-                "icon": "🟢",
-                "name": "НИЗКИЙ ПРИОРИТЕТ",
-                "emoji": "📋",
-                "color": "🟢",
-                "description": "Задачи без строгих дедлайнов",
-                "header_emoji": "🗓️",
-            },
-        }
-
-        config = priority_config[priority]
-        today = datetime.now().date()
-
-        stats = {
-            "total": len(tasks),
-            "with_date": 0,
-            "without_date": 0,
-            "overdue": 0,
-            "today": 0,
-            "tomorrow": 0,
-            "this_week": 0,
-            "urgent": 0,
-            "with_tags": 0,
-            "without_tags": 0,
-        }
-
-        processed_tasks = []
-        for task in tasks:
-            task_data = extract_task_data(task)
-            if not task_data:
-                continue
-
-            task_id, content, due_date, task_priority, status, is_deleted = task_data
-
-            task_tags = await db.get_task_tags(task_id)
-            has_tags = bool(task_tags)
-
-            if has_tags:
-                stats["with_tags"] += 1
-            else:
-                stats["without_tags"] += 1
-
-            due_info = {
-                "text": "",
-                "is_urgent": False,
-                "is_overdue": False,
-                "is_today": False,
-            }
-
-            if due_date:
-                stats["with_date"] += 1
-                try:
-                    due_datetime = datetime.fromisoformat(due_date.replace(" ", "T"))
-                    due_date_only = due_datetime.date()
-
-                    if due_date_only < today:
-                        due_info["text"] = (
-                            f"🚨 <b>ПРОСРОЧЕНА:</b> {due_datetime.strftime('%d.%m.%Y %H:%M')}"
-                        )
-                        due_info["is_overdue"] = True
-                        due_info["is_urgent"] = True
-                        stats["overdue"] += 1
-                    elif due_date_only == today:
-                        time_part = due_datetime.strftime("%H:%M")
-                        if time_part == "23:59":
-                            due_info["text"] = f"🎯 <b>СЕГОДНЯ</b> (весь день)"
-                        else:
-                            due_info["text"] = f"🎯 <b>СЕГОДНЯ</b> в {time_part}"
-                        due_info["is_today"] = True
-                        due_info["is_urgent"] = True
-                        stats["today"] += 1
-                        stats["urgent"] += 1
-                    elif due_date_only == today + timedelta(days=1):
-                        due_info["text"] = (
-                            f"⏰ <b>ЗАВТРА:</b> {due_datetime.strftime('%d.%m.%Y %H:%M')}"
-                        )
-                        due_info["is_urgent"] = True
-                        stats["tomorrow"] += 1
-                        stats["urgent"] += 1
-                    elif (due_date_only - today).days <= 7:
-                        due_info["text"] = (
-                            f"📅 <b>НА НЕДЕЛЕ:</b> {due_datetime.strftime('%d.%m.%Y')}"
-                        )
-                        stats["this_week"] += 1
-                    else:
-                        due_info["text"] = f"🗓️ {due_datetime.strftime('%d.%m.%Y')}"
-                except (ValueError, TypeError):
-                    due_info["text"] = "📅 Дата в неверном формате"
-            else:
-                stats["without_date"] += 1
-                due_info["text"] = "⏳ Без срока"
-
-            processed_tasks.append(
-                {
-                    "id": task_id,
-                    "content": content,
-                    "due_info": due_info,
-                    "tags": task_tags,
-                    "has_tags": has_tags,
-                }
-            )
-
-        header_text = (
-            f"{config['emoji']} <b>{config['name']}</b> {config['emoji']}\n"
-            f"<i>{config['description']}</i>\n\n"
-            f"{config['header_emoji']} <b>ОБЗОР КАТЕГОРИИ</b>\n"
-            f"<code>┌{'─' * 35}┐</code>\n"
-            f"<code>│</code> 📊 Всего задач: <b>{stats['total']}</b>\n"
-            f"<code>│</code> 📅 Со сроком: <b>{stats['with_date']}</b>\n"
-            f"<code>│</code> ⏳ Без срока: <b>{stats['without_date']}</b>\n"
-            f"<code>│</code> 🏷️ С тегами: <b>{stats['with_tags']}</b>\n"
-            f"<code>│</code> 🔸 Без тегов: <b>{stats['without_tags']}</b>\n"
+        header = (
+            f"📊 <b>ГРУППИРОВКА ПО СТАТУСАМ</b>\n"
+            f"<code></code> 📊 Всего задач: <b>{total_tasks}</b>\n"
+            f"<code></code> 📝 Активные: <b>{len(active_tasks)}</b>\n"
+            f"<code></code> ✅ Выполненные: <b>{len(completed_tasks)}</b>\n"
+            f"<code></code> 🗑️ Удаленные: <b>{len(deleted_tasks)}</b>\n"
         )
 
-        if stats["urgent"] > 0:
-            header_text += f"<code>│</code> ⚡ Срочные: <b>{stats['urgent']}</b>\n"
-        if stats["overdue"] > 0:
-            header_text += (
-                f"<code>│</code> 🚨 Просроченные: <b>{stats['overdue']}</b>\n"
-            )
-        if stats["today"] > 0:
-            header_text += f"<code>│</code> 🎯 На сегодня: <b>{stats['today']}</b>\n"
+        await message.answer(header, parse_mode="HTML")
+        status_config = {
+            "АКТИВНЫЕ": {"tasks": active_tasks, "icon": "📝"},
+            "ВЫПОЛНЕННЫЕ": {"tasks": completed_tasks, "icon": "✅"},
+            "УДАЛЕННЫЕ": {"tasks": deleted_tasks, "icon": "🗑️"},
+        }
 
-        header_text += f"<code>└{'─' * 35}┘</code>"
-
-        await message.answer(header_text, parse_mode="HTML")
-
-        urgent_tasks = [t for t in processed_tasks if t["due_info"]["is_urgent"]]
-        if urgent_tasks:
-            urgent_text = f"🚨 <b>ТРЕБУЮТ ВНИМАНИЯ</b> 🚨\n\n"
-
-            for task in urgent_tasks[:8]:
-                tags_text = ""
-                if task["tags"]:
-                    tags_text = " ".join(
-                        [f"<code>#{tag[1]}</code>" for tag in task["tags"]]
-                    )
-
-                display_content = task["content"]
-                if len(display_content) > 45:
-                    display_content = task["content"][:42] + "..."
-
-                urgent_text += (
-                    f"{config['icon']} <b>#{task['id']}</b>\n"
-                    f"📝 {display_content}\n"
-                    f"⏰ {task['due_info']['text']}\n"
+        for status_name, status_data in status_config.items():
+            if status_data["tasks"]:
+                await process_status_group(
+                    message, status_name, status_data["icon"], status_data["tasks"]
                 )
 
-                if tags_text:
-                    urgent_text += f"🏷️ {tags_text}\n"
-
-                urgent_text += "\n"
-
-            if len(urgent_tasks) > 8:
-                urgent_text += (
-                    f"<i>... и еще {len(urgent_tasks) - 8} срочных задач</i>\n"
-                )
-
-            await message.answer(urgent_text, parse_mode="HTML")
-
-        if stats["total"] <= 15:
-            tasks_text = f"📋 <b>ВСЕ ЗАДАЧИ КАТЕГОРИИ</b> 📋\n\n"
-
-            for i, task in enumerate(processed_tasks, 1):
-                tags_text = ""
-                if task["tags"]:
-                    tags_text = " ".join(
-                        [f"<code>#{tag[1]}</code>" for tag in task["tags"]]
-                    )
-
-                display_content = task["content"]
-                if len(display_content) > 40:
-                    display_content = task["content"][:37] + "..."
-
-                tasks_text += (
-                    f"<code>┌{'─' * 35}┐</code>\n"
-                    f"<b>#{task['id']}</b> │ {config['icon']} <b>Задача {i}</b>\n"
-                    f"<code>│</code> 📝 {display_content}\n"
-                    f"<code>│</code> {task['due_info']['text']}\n"
-                )
-
-                if tags_text:
-                    tasks_text += f"<code>│</code> 🏷️ {tags_text}\n"
-
-                tasks_text += f"<code>└{'─' * 35}┘</code>\n\n"
-
-            tasks_text += f"📈 <b>Итого:</b> {stats['total']} задач в категории"
-
-            await message.answer(
-                tasks_text, parse_mode="HTML", reply_markup=get_tasks_keyboard()
-            )
-
-        else:
-            summary_text = (
-                f"📁 <b>ПОЛНЫЙ СПИСОК ЗАДАЧ</b> 📁\n\n"
-                f"<code>┌{'─' * 30}┐</code>\n"
-                f"<code>│</code> 🎯 Всего задач: <b>{stats['total']}</b>\n"
-            )
-
-            date_groups = {
-                "🚨 Просроченные": stats["overdue"],
-                "🎯 На сегодня": stats["today"],
-                "⏰ На завтра": stats["tomorrow"],
-                "📅 На неделе": stats["this_week"],
-                "🗓️ В будущем": stats["with_date"]
-                - (
-                    stats["overdue"]
-                    + stats["today"]
-                    + stats["tomorrow"]
-                    + stats["this_week"]
-                ),
-                "⏳ Без срока": stats["without_date"],
-            }
-
-            for group_name, count in date_groups.items():
-                if count > 0:
-                    summary_text += f"<code>│</code> {group_name}: <b>{count}</b>\n"
-
-            summary_text += (
-                f"<code>└{'─' * 30}┘</code>\n\n"
-                f"💡 <b>Для детального просмотра:</b>\n"
-                f"• Используйте фильтры по датам\n"
-                f"• Примените группировку по тегам\n"
-                f"• Просмотрите задачи поэтапно"
-            )
-
-            await message.answer(
-                summary_text, parse_mode="HTML", reply_markup=get_tasks_keyboard()
-            )
-
-    except Exception as e:
-        error_text = (
-            "❌ <b>ОШИБКА ПРИ ГРУППИРОВКЕ</b>\n\n"
-            f"<code>┌{'─' * 25}┐</code>\n"
-            f"<code>│</code> 🚫 Не удалось загрузить задачи\n"
-            f"<code>│</code> 📝 По приоритету: {priority}\n"
-            f"<code>│</code> 🔧 Ошибка: {str(e)[:50]}...\n"
-            f"<code>└{'─' * 25}┘</code>\n\n"
-            "🔄 <i>Попробуйте еще раз или обратитесь в поддержку</i>"
+        footer = (
+            f"📈 <b>ИТОГИ ГРУППИРОВКИ ПО СТАТУСАМ</b>\n"
+            f"<code></code> 📊 Всего обработано: <b>{total_tasks}</b> задач\n"
+            f"<code></code> 📝 Активные: <b>{len(active_tasks)}</b>\n"
+            f"<code></code> ✅ Выполненные: <b>{len(completed_tasks)}</b>\n"
+            f"<code></code> 🗑️ Удаленные: <b>{len(deleted_tasks)}</b>\n"
         )
 
         await message.answer(
-            error_text, parse_mode="HTML", reply_markup=get_tasks_keyboard()
+            footer, parse_mode="HTML", reply_markup=get_tasks_keyboard()
         )
-        print(f"Error in group_by_specific_priority: {e}")
 
-    finally:
+    except Exception as e:
+        error_msg = (
+            f"❌ <b>ОШИБКА ГРУППИРОВКИ ПО СТАТУСАМ</b>\n"
+            f"<code></code> 🔧 Техническая информация:\n"
+            f"<code></code> • Ошибка: {str(e)[:50]}...\n"
+        )
+        await message.answer(
+            error_msg, parse_mode="HTML", reply_markup=get_tasks_keyboard()
+        )
+
+    await state.clear()
+
+
+async def process_status_group(
+    message: Message, status_name: str, icon: str, tasks: list
+):
+    """Обрабатывает одну группу статусов"""
+    total_tasks = len(tasks)
+
+    header = (
+        f"{icon} <b>СТАТУС: {status_name}</b>\n"
+        f"<code></code> 📊 Задач в группе: <b>{total_tasks}</b>\n"
+    )
+    await message.answer(header, parse_mode="HTML")
+    for i, task in enumerate(tasks, 1):
+        task_data = extract_task_data(task)
+        if task_data:
+            task_id, content, due_date, priority, status, is_deleted = task_data
+
+            task_tags = await db.get_task_tags(task_id)
+            card = create_task_card(task_data, task_tags)
+            card += f"\n📁 <i>Группа: {status_name} | Задача {i} из {total_tasks}</i>"
+
+            await message.answer(card, parse_mode="HTML")
+
+        if i % 2 == 0:
+            await asyncio.sleep(0.1)
+
+
+async def process_date_group(message: Message, date_name: str, icon: str, tasks: list):
+    """Обрабатывает одну группу дат"""
+    total_tasks = len(tasks)
+
+    header = (
+        f"{icon} <b>ДАТА: {date_name}</b>\n"
+        f"<code></code> 📊 Задач в группе: <b>{total_tasks}</b>\n"
+    )
+
+    await message.answer(header, parse_mode="HTML")
+
+    for i, task in enumerate(tasks, 1):
+        task_data = extract_task_data(task)
+        if task_data:
+            task_id, content, due_date, priority, status, is_deleted = task_data
+
+            task_tags = await db.get_task_tags(task_id)
+            card = create_task_card(task_data, task_tags)
+            card += f"\n📁 <i>Группа: {date_name} | Задача {i} из {total_tasks}</i>"
+
+            await message.answer(card, parse_mode="HTML")
+        if i % 2 == 0:
+            await asyncio.sleep(0.1)
+
+
+async def group_by_specific_status(message: Message, state: FSMContext, status: str):
+    """Группировка по конкретному статусу с детальными карточками"""
+    user_id = message.from_user.id
+
+    if status == "pending":
+        tasks = await db.get_user_tasks_with_priority(user_id, "pending")
+        status_name = "АКТИВНЫЕ"
+        icon = "📝"
+    elif status == "completed":
+        tasks = await db.get_user_tasks(user_id, "completed")
+        status_name = "ВЫПОЛНЕННЫЕ"
+        icon = "✅"
+    elif status == "deleted":
+        tasks = await db.get_deleted_tasks(user_id)
+        status_name = "УДАЛЕННЫЕ"
+        icon = "🗑️"
+
+    if not tasks:
+        empty_msg = (
+            f"{icon} <b>СТАТУС: {status_name}</b>\n"
+            f"<code></code> 📊 Состояние: <b>НЕТ ЗАДАЧ</b>\n"
+            f"<code></code> 💡 Создайте задачи с этим статусом!\n"
+        )
+        await message.answer(
+            empty_msg, parse_mode="HTML", reply_markup=get_tasks_keyboard()
+        )
         await state.clear()
+        return
+
+    await process_status_group(message, status_name, icon, tasks)
+    await state.clear()
 
 
 async def group_by_specific_period(message: Message, state: FSMContext, period: str):
@@ -2997,7 +2888,7 @@ async def group_by_specific_period(message: Message, state: FSMContext, period: 
 async def show_period_tasks(
     message: Message, state: FSMContext, tasks: list, period_name: str
 ):
-    """Показывает задачи за период с минимальным оформлением"""
+    """Показывает задачи за период"""
     if not tasks:
         await message.answer(
             f"🎉 Нет задач на {period_name}!", reply_markup=get_tasks_keyboard()
@@ -3022,9 +2913,8 @@ async def show_period_tasks(
         display_content = content[:35] + "..." if len(content) > 35 else content
 
         grouped_text += (
-            f"<code>├{'─' * 35}┤</code>\n"
             f"{priority_icon} <b>#{task_id}</b> {display_content}\n"
-            f"<code>│</code> {due_text}\n"
+            f"<code></code> {due_text}\n"
         )
 
     grouped_text += (
@@ -3086,106 +2976,3 @@ async def group_by_specific_status(message: Message, state: FSMContext, status: 
         grouped_text, parse_mode="HTML", reply_markup=get_tasks_keyboard()
     )
     await state.clear()
-
-
-@router.message(StateFilter(TaskGrouping.waiting_for_specific_choice))
-async def process_specific_choice(message: Message, state: FSMContext):
-    """Единый обработчик для всех подменю группировки"""
-    if await handle_navigation(message, state):
-        return
-
-    data = await state.get_data()
-    group_type = data.get("group_type")
-
-    try:
-        if group_type == "priority":
-            await process_priority_group_choice(message, state)
-        elif group_type == "date":
-            await process_date_group_choice(message, state)
-        elif group_type == "status":
-            await process_status_group_choice(message, state)
-        else:
-            await message.answer(
-                "❌ Ошибка типа группировки. Попробуйте снова:",
-                reply_markup=get_tasks_keyboard(),
-            )
-            await state.clear()
-    except Exception as e:
-        await message.answer(
-            f"❌ Ошибка при обработке выбора: {e}",
-            reply_markup=get_tasks_keyboard(),
-        )
-        await state.clear()
-
-
-async def process_priority_group_choice(message: Message, state: FSMContext):
-    """Обработка выбора приоритета для группировки"""
-    priority_map = {
-        "🔴 Высокий": "high",
-        "🟡 Средний": "medium",
-        "🟢 Низкий": "low",
-        "🎯 Все приоритеты": "all",
-    }
-
-    if message.text not in priority_map:
-        await message.answer(
-            "❌ Пожалуйста, выберите приоритет из меню:",
-            reply_markup=get_grouping_priority_keyboard(),
-        )
-        return
-
-    priority = priority_map[message.text]
-
-    if priority == "all":
-        await group_by_priority(message, state)
-    else:
-        await group_by_specific_priority(message, state, priority)
-
-
-async def process_date_group_choice(message: Message, state: FSMContext):
-    """Обработка выбора даты для группировки"""
-    period_map = {
-        "📅 Сегодня": "today",
-        "📅 Завтра": "tomorrow",
-        "📅 Неделя": "week",
-        "📅 Месяц": "month",
-        "📅 Все время": "all",
-    }
-
-    if message.text not in period_map:
-        await message.answer(
-            "❌ Пожалуйста, выберите период из меню:",
-            reply_markup=get_grouping_period_keyboard(),
-        )
-        return
-
-    period = period_map[message.text]
-
-    if period == "all":
-        await group_by_date(message, state)
-    else:
-        await group_by_specific_period(message, state, period)
-
-
-async def process_status_group_choice(message: Message, state: FSMContext):
-    """Обработка выбора статуса для группировки"""
-    status_map = {
-        "📝 Активные": "pending",
-        "✅ Выполненные": "completed",
-        "🗑️ Удаленные": "deleted",
-        "📊 Все статусы": "all",
-    }
-
-    if message.text not in status_map:
-        await message.answer(
-            "❌ Пожалуйста, выберите статус из меню:",
-            reply_markup=get_grouping_status_keyboard(),
-        )
-        return
-
-    status = status_map[message.text]
-
-    if status == "all":
-        await group_by_status(message, state)
-    else:
-        await group_by_specific_status(message, state, status)

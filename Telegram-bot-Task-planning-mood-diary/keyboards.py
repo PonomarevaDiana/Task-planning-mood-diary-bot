@@ -533,71 +533,7 @@ def get_grouping_keyboard():
                 KeyboardButton(text="📅 По датам"),
                 KeyboardButton(text="📊 По статусу"),
             ],
-            [
-                KeyboardButton(text="📋 Все задачи"),
-            ],
             [KeyboardButton(text="🔙 Назад к задачам")],
-        ],
-        resize_keyboard=True,
-    )
-
-
-def get_grouping_period_keyboard():
-    """Клавиатура для выбора периода группировки"""
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [
-                KeyboardButton(text="📅 Сегодня"),
-                KeyboardButton(text="📅 Завтра"),
-            ],
-            [
-                KeyboardButton(text="📅 Неделя"),
-                KeyboardButton(text="📅 Месяц"),
-            ],
-            [
-                KeyboardButton(text="📅 Все время"),
-                KeyboardButton(text="🔙 Назад к задачам"),
-            ],
-        ],
-        resize_keyboard=True,
-    )
-
-
-def get_grouping_priority_keyboard():
-    """Клавиатура для группировки по приоритетам"""
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [
-                KeyboardButton(text="🔴 Высокий"),
-                KeyboardButton(text="🟡 Средний"),
-            ],
-            [
-                KeyboardButton(text="🟢 Низкий"),
-                KeyboardButton(text="🎯 Все приоритеты"),
-            ],
-            [
-                KeyboardButton(text="🔙 Назад к задачам"),
-            ],
-        ],
-        resize_keyboard=True,
-    )
-
-
-def get_grouping_status_keyboard():
-    """Клавиатура для группировки по статусам"""
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [
-                KeyboardButton(text="📝 Активные"),
-                KeyboardButton(text="✅ Выполненные"),
-            ],
-            [
-                KeyboardButton(text="🗑️ Удаленные"),
-                KeyboardButton(text="📊 Все статусы"),
-            ],
-            [
-                KeyboardButton(text="🔙 Назад к задачам"),
-            ],
         ],
         resize_keyboard=True,
     )
