@@ -7,7 +7,6 @@ from aiogram.fsm.state import State, StatesGroup
 from datetime import datetime, time, timedelta
 from pathlib import Path
 import sys
-from reminders import reminder_manager
 from aiogram.types import Message
 from handlers.common import handle_navigation
 
@@ -17,7 +16,6 @@ sys.path.insert(0, str(project_root))
 
 from database import db
 from keyboards import (
-    get_main_keyboard,
     get_tasks_keyboard,
     get_task_creation_keyboard,
     get_priority_keyboard,
@@ -41,6 +39,12 @@ from keyboards import (
 )
 
 router = Router()
+reminder_manager = None
+
+
+async def set_reminder_manager(manager):
+    global reminder_manager
+    reminder_manager = manager
 
 
 class TaskCreation(StatesGroup):
@@ -1570,7 +1574,6 @@ async def process_new_time(message: Message, state: FSMContext):
             return
 
     await db.update_task_due_date(task_id, due_datetime)
-
     if reminder_manager:
         try:
             await reminder_manager.update_reminders_for_edited_task(

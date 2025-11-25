@@ -59,7 +59,10 @@ async def main():
         storage = MemoryStorage()
         dp = Dispatcher(storage=storage)
 
-        await init_reminder_manager(bot)
+        reminder_manager_instance = await init_reminder_manager(bot)
+        from handlers.tasks import set_reminder_manager
+
+        await set_reminder_manager(reminder_manager_instance)
 
         asyncio.create_task(scheduled_cleanup())
         dp.include_router(notification_router)
