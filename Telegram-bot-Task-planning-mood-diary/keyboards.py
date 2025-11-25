@@ -303,7 +303,6 @@ def get_notifications_keyboard():
         keyboard=[
             [
                 KeyboardButton(text="🔔 Настройка напоминаний"),
-                KeyboardButton(text="📱 Типы уведомлений"),
                 KeyboardButton(text="⏰ Настройка времени"),
             ],
             [
